@@ -17,6 +17,7 @@
 #define CRYPT_DEFAULT_H
 #include <stdint.h>
 #include "hitls_crypt_type.h"
+#include "hitls_crypt_reg.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,6 +53,16 @@ uint32_t CRYPT_DEFAULT_HMAC_Size(HITLS_HashAlgo hashAlgo);
  * @return HMAC context
  */
 HITLS_HMAC_Ctx *CRYPT_DEFAULT_HMAC_Init(HITLS_HashAlgo hashAlgo, const uint8_t *key, uint32_t len);
+
+/**
+ * @brief ReInitialize the HMAC context.
+ *
+ * @param ctx [IN] HMAC context.
+ *
+ * @retval HITLS_SUCCESS succeeded.
+ * @retval Other         failure
+ */
+int32_t CRYPT_DEFAULT_HMAC_ReInit(HITLS_HMAC_Ctx *ctx);
 
 /**
  * @brief Release the HMAC context.
@@ -205,6 +216,12 @@ int32_t CRYPT_DEFAULT_Decrypt(const HITLS_CipherParameters *cipher, const uint8_
     uint8_t *out, uint32_t *outLen);
 
 /**
+ * @brief Release the cipher ctx.
+ *
+ * @param ctx [IN] cipher ctx handle. The handle is set NULL by the invoker.
+ */
+void CRYPT_DEFAULT_CipherFree(HITLS_Cipher_Ctx *ctx);
+/**
  * @brief Generate the ECDH key pair.
  *
  * @param curveParams [IN] ECDH parameter
@@ -274,10 +291,10 @@ void CRYPT_DEFAULT_FreeKey(HITLS_CRYPT_Key *key);
  * @retval HITLS_SUCCESS succeeded.
  * @retval Other         failure
  */
-int32_t CRYPT_DEFAULT_GetPubKey(HITLS_CRYPT_Key *key, uint8_t *pubKeyBuf, uint32_t bufLen, uint32_t *usedLen);
+int32_t CRYPT_DEFAULT_GetPubKey(HITLS_CRYPT_Key *key, uint8_t *pubKeyBuf, uint32_t bufLen, uint32_t *pubKeyLen);
 
 /**
- * @brief Calculate the shared key.
+ * @brief Calculate the shared key. Ref RFC 5246 section 8.1.2, this interface will remove the pre-zeros.
  *
  * @param key [IN] Local key handle
  * @param peerPubkey [IN] Peer public key data
@@ -288,7 +305,23 @@ int32_t CRYPT_DEFAULT_GetPubKey(HITLS_CRYPT_Key *key, uint8_t *pubKeyBuf, uint32
  * @retval HITLS_SUCCESS succeeded.
  * @retval Other         failure
  */
-int32_t CRYPT_DEFAULT_CalcSharedSecret(HITLS_CRYPT_Key *key, uint8_t *peerPubkey, uint32_t pubKeyLen,
+int32_t CRYPT_DEFAULT_DhCalcSharedSecret(HITLS_CRYPT_Key *key, uint8_t *peerPubkey, uint32_t pubKeyLen,
+    uint8_t *sharedSecret, uint32_t *sharedSecretLen);
+
+/**
+ * @brief Calculate the shared key. Ref RFC 8446 section 7.4.1, this interface will retain the leading zeros.
+ * after calculation.
+ *
+ * @param key [IN] Local key handle
+ * @param peerPubkey [IN] Peer public key data
+ * @param pubKeyLen [IN] Public key data length
+ * @param sharedSecret [OUT] Shared key
+ * @param sharedSecretLen [IN/OUT] IN: Maximum length of data padding OUT: length of the shared key
+ *
+ * @retval HITLS_SUCCESS succeeded.
+ * @retval Other         failure
+ */
+int32_t CRYPT_DEFAULT_EcdhCalcSharedSecret(HITLS_CRYPT_Key *key, uint8_t *peerPubkey, uint32_t pubKeyLen,
     uint8_t *sharedSecret, uint32_t *sharedSecretLen);
 
 /**
@@ -327,6 +360,43 @@ int32_t CRYPT_DEFAULT_HkdfExtract(const HITLS_CRYPT_HkdfExtractInput *input, uin
  * @retval Other         failure
  */
 int32_t CRYPT_DEFAULT_HkdfExpand(const HITLS_CRYPT_HkdfExpandInput *input, uint8_t *okm, uint32_t okmLen);
+
+/**
+ * @brief Initialize the hash context.
+ *
+ * This function initializes the hash context with the given hash algorithm.
+ *
+ * @param hashAlgo   [IN] Hash algorithm to be used in the hash operation, e.g., HITLS_SHA256.
+ *
+ * @return hash context
+ *         Returns a pointer to the initialized hash context.
+ *         Returns NULL if the initialization fails.
+ */
+HITLS_HASH_Ctx *CRYPT_DEFAULT_DigestInit(HITLS_HashAlgo hashAlgo);
+
+/**
+ * @brief KEM-Encapsulate
+ *
+ * @param params [IN] KEM encapsulation parameters
+ *
+ * @retval HITLS_SUCCESS succeeded.
+ */
+int32_t CRYPT_DEFAULT_KemEncapsulate(HITLS_KemEncapsulateParams *params);
+
+/**
+ * @brief KEM-Decapsulate
+ *
+ * @param key [IN] Key handle
+ * @param ciphertext [IN] Ciphertext data
+ * @param ciphertextLen [IN] Ciphertext data length
+ * @param sharedSecret [OUT] Shared key
+ * @param sharedSecretLen [IN/OUT] IN: Maximum length of data padding OUT: length of the shared key
+ *
+ * @retval HITLS_SUCCESS succeeded.
+ * @retval Other         failure
+ */
+int32_t CRYPT_DEFAULT_KemDecapsulate(HITLS_CRYPT_Key *key, const uint8_t *ciphertext, uint32_t ciphertextLen,
+    uint8_t *sharedSecret, uint32_t *sharedSecretLen);
 
 #ifdef __cplusplus
 }

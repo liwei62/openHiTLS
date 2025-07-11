@@ -505,7 +505,39 @@ static int32_t PackPskBinder(const FRAME_HsArrayPskBinder *field, uint8_t *buf, 
     *offset += bufoffset;
     return HITLS_SUCCESS;
 }
+static int32_t PackHsExtCaList(const FRAME_HsExtCaList *field, uint8_t *buf,
+    uint32_t bufLen, uint32_t *offset)
+{
+    if (field->exState == MISSING_FIELD) {
+        return HITLS_SUCCESS;
+    }
 
+    // Calculate the total length to be assembled
+    uint32_t length = 0;
+    length += ((field->exType.state == MISSING_FIELD) ? 0 : sizeof(uint16_t));
+    length += ((field->exLen.state == MISSING_FIELD) ? 0 : sizeof(uint16_t));
+    length += ((field->listSize.state == MISSING_FIELD) ? 0 : sizeof(uint16_t));
+    length += ((field->list.state == MISSING_FIELD) ? 0 : sizeof(uint8_t) * field->list.size);
+
+    if (bufLen < length) {
+        return HITLS_INTERNAL_EXCEPTION;
+    }
+
+    uint32_t bufoffset = 0;
+    uint32_t tmpOffset = 0;
+    PackInteger16(&field->exType, &buf[bufoffset], bufLen - bufoffset, &bufoffset);
+    tmpOffset = bufoffset;
+    PackInteger16(&field->exLen, &buf[bufoffset], bufLen - bufoffset, &bufoffset);
+    PackInteger16(&field->listSize, &buf[bufoffset], bufLen - bufoffset, &bufoffset);
+    PackArray8(&field->list, &buf[bufoffset], bufLen - bufoffset, &bufoffset);
+
+    if (field->exLen.state == INITIAL_FIELD) {
+        uint32_t len = bufoffset - sizeof(uint16_t) - tmpOffset;
+        BSL_Uint16ToByte(len, &buf[tmpOffset]);
+    }
+    *offset += bufoffset;
+    return HITLS_SUCCESS;
+}
 static int32_t PackHsExtOfferedPsks(const FRAME_HsExtOfferedPsks *field, uint8_t *buf,
     uint32_t bufLen, uint32_t *offset)
 {
@@ -698,7 +730,7 @@ static int32_t PackClientHelloMsg(const FRAME_ClientHelloMsg *clientHello, uint8
     if (clientHello->extensionState != MISSING_FIELD) {
         PackInteger16(&clientHello->extensionLen, &buf[offset], bufLen - offset, &offset);
         if (clientHello->extensionLen.state == SET_LEN_TO_ONE_BYTE) {
-            goto PACK_EXIT;
+            goto EXIT;
         }
         PackHsExtArrayForList(&clientHello->serverName, &buf[offset], bufLen - offset, &offset);
         PackHsExtArray16(&clientHello->signatureAlgorithms, &buf[offset], bufLen - offset, &offset);
@@ -712,15 +744,16 @@ static int32_t PackClientHelloMsg(const FRAME_ClientHelloMsg *clientHello, uint8
         PackHsExtKeyShare(&clientHello->keyshares, &buf[offset], bufLen - offset, &offset);
         PackHsExtArray8(&clientHello->secRenego, &buf[offset], bufLen - offset, &offset);
         PackHsExtArrayForTicket(&clientHello->sessionTicket, &buf[offset], bufLen - offset, &offset);
+        PackHsExtArray8(&clientHello->encryptThenMac, &buf[offset], bufLen - offset, &offset);
         PackHsExtOfferedPsks(&clientHello->psks, &buf[offset], bufLen - offset, &offset);
-
+        PackHsExtCaList(&clientHello->caList, &buf[offset], bufLen - offset, &offset);
         if (clientHello->extensionLen.state == INITIAL_FIELD) {
             uint32_t extensionLen = offset - sizeof(uint16_t) - bufOffset;
             BSL_Uint16ToByte(extensionLen, &buf[bufOffset]);
         }
     }
 
-PACK_EXIT:
+EXIT:
     *usedLen = offset;
     return HITLS_SUCCESS;
 }
@@ -833,8 +866,9 @@ static int32_t PackServerHelloMsg(const FRAME_ServerHelloMsg *serverHello, uint8
     // hello retry request key share
     PackHsExtArray8(&serverHello->secRenego, &buf[offset], bufLen - offset, &offset);
     PackHsExtArray8(&serverHello->pointFormats, &buf[offset], bufLen - offset, &offset);
-    // encrypt then mac
     PackHsExtUint16(&serverHello->pskSelectedIdentity, &buf[offset], bufLen - offset, &offset);
+    // encrypt then mac
+    PackHsExtArray8(&serverHello->encryptThenMac, &buf[offset], bufLen - offset, &offset);
 
 	if (serverHello->extensionLen.state == INITIAL_FIELD) {
         uint32_t extensionLen = offset - sizeof(uint16_t) - bufOffset;
@@ -863,11 +897,11 @@ static int32_t PackCertificateMsg(FRAME_Type *type, const FRAME_CertificateMsg *
         }
         PackInteger24(&next->certLen, &buf[offset], bufLen - offset, &offset);
         PackArray8(&next->cert, &buf[offset], bufLen - offset, &offset);
-        next = next->next;
         if (type->versionType == HITLS_VERSION_TLS13) {
-            FRAME_Integer status = { INITIAL_FIELD, 0};
-            PackInteger16(&status, &buf[offset], bufLen - offset, &offset);
+            PackInteger16(&next->extensionLen, &buf[offset], bufLen - offset, &offset);
+            PackArray8(&next->extension, &buf[offset], bufLen - offset, &offset);
         }
+        next = next->next;
     }
 
     if (certificate->certsLen.state == INITIAL_FIELD) {
@@ -884,7 +918,7 @@ static int32_t PackServerEcdheMsg(FRAME_Type *type, const FRAME_ServerKeyExchang
 {
     uint32_t offset = 0;
 
-    // Fill in the following values in sequence: curve type, curve ID, pubkeylen, pubkey value, signature algorithm, 
+    // Fill in the following values in sequence: curve type, curve ID, pubkeylen, pubkey value, signature algorithm,
     // signature len, and signature value.
     PackInteger8(&serverKeyExchange->keyEx.ecdh.curveType, &buf[offset], bufLen, &offset);
     PackInteger16(&serverKeyExchange->keyEx.ecdh.namedcurve, &buf[offset], bufLen - offset, &offset);
@@ -908,7 +942,7 @@ static int32_t PackServerDheMsg(FRAME_Type *type, const FRAME_ServerKeyExchangeM
 {
     uint32_t offset = 0;
 
-    // Fill in the following values in sequence: plen, p value, glen, g value, pubkeylen, pubkey value, 
+    // Fill in the following values in sequence: plen, p value, glen, g value, pubkeylen, pubkey value,
     // signature algorithm, signature len, and signature value.
     PackInteger16(&serverKeyExchange->keyEx.dh.plen, &buf[offset], bufLen, &offset);
     PackArray8(&serverKeyExchange->keyEx.dh.p, &buf[offset], bufLen - offset, &offset);
@@ -1039,14 +1073,12 @@ static int32_t PackClientEcdheMsg(FRAME_Type *type, const FRAME_ClientKeyExchang
     uint32_t bufLen, uint32_t *usedLen)
 {
     uint32_t offset = 0;
-#ifndef HITLS_NO_TLCP11
-    if (type->versionType == HITLS_VERSION_TLCP11) { /* Three bytes are added to the client key exchange. */
+    if (type->versionType == HITLS_VERSION_TLCP_DTLCP11) { /* Three bytes are added to the client key exchange. */
         buf[offset] = HITLS_EC_CURVE_TYPE_NAMED_CURVE;
         offset += sizeof(uint8_t);
         BSL_Uint16ToByte(HITLS_EC_GROUP_SM2, &buf[offset]);
         offset += sizeof(uint16_t);
     }
-#endif
     PackInteger8(&clientKeyExchange->pubKeySize, &buf[offset], bufLen, &offset);
     PackArray8(&clientKeyExchange->pubKey, &buf[offset], bufLen - offset, &offset);
 
@@ -1072,7 +1104,7 @@ static int32_t PackClientKeyExchangeMsg(FRAME_Type *type, const FRAME_ClientKeyE
     // Currently, ECDHE and DHE key exchange packets can be assembled.
     if (type->keyExType == HITLS_KEY_EXCH_ECDHE) {
         return PackClientEcdheMsg(type, clientKeyExchange, buf, bufLen, usedLen);
-    } else if (type->keyExType == HITLS_KEY_EXCH_DHE) {
+    } else if (type->keyExType == HITLS_KEY_EXCH_DHE || type->keyExType == HITLS_KEY_EXCH_RSA) {
         return PackClientDheMsg(clientKeyExchange, buf, bufLen, usedLen);
     }
 
@@ -1108,8 +1140,9 @@ static int32_t PackFinishedMsg(const FRAME_FinishedMsg *finished, uint8_t *buf,
 }
 
 static void PackHsMsgHeader(uint16_t version, const FRAME_HsMsg *hsMsg, uint32_t bodyLen,
-    uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
+    uint8_t *buf, uint32_t bufLen, uint32_t *usedLen, BSL_UIO_TransportType transportType)
 {
+    (void)version;
     uint32_t offset = 0;
     uint32_t bufOffset;
 
@@ -1117,7 +1150,7 @@ static void PackHsMsgHeader(uint16_t version, const FRAME_HsMsg *hsMsg, uint32_t
 
     bufOffset = offset;
     PackInteger24(&hsMsg->length, &buf[offset], bufLen - offset, &offset);
-    if (IS_DTLS_VERSION(version)) {
+    if (IS_TRANSTYPE_DATAGRAM(transportType)) {
         PackInteger16(&hsMsg->sequence, &buf[offset], bufLen - offset, &offset);
         PackInteger24(&hsMsg->fragmentOffset, &buf[offset], bufLen - offset, &offset);
         if (hsMsg->fragmentLength.state == INITIAL_FIELD) {
@@ -1214,7 +1247,7 @@ static int32_t PackHandShakeMsg(FRAME_Type *type, const FRAME_Msg *msg,
     uint32_t headerLen;
     uint32_t bodyLen = 0;
 
-    if (IS_DTLS_VERSION(type->versionType)) {      // DTLS
+    if (IS_TRANSTYPE_DATAGRAM(type->transportType)) { // DTLS
         if (bufLen < DTLS_HS_MSG_HEADER_SIZE) {
             return HITLS_INTERNAL_EXCEPTION;
         }
@@ -1239,7 +1272,7 @@ static int32_t PackHandShakeMsg(FRAME_Type *type, const FRAME_Msg *msg,
     }
 
     // Assemble the handshake packet header.
-    PackHsMsgHeader(type->versionType, hsMsg, bodyLen, buf, headerLen, &headerLen);
+    PackHsMsgHeader(type->versionType, hsMsg, bodyLen, buf, headerLen, &headerLen, type->transportType);
 
     // Splicing body and head
     // If some fields are missing in the header, the packet body is filled with an offset forward.
@@ -1289,13 +1322,14 @@ static int32_t PackAppMsg(const FRAME_Msg *msg, uint8_t *buf, uint32_t bufLen, u
 }
 
 static int32_t PackRecordHeader(uint16_t version, const FRAME_Msg *msg, uint32_t bodyLen,
-    uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
+    uint8_t *buf, uint32_t bufLen, uint32_t *usedLen, BSL_UIO_TransportType transportType)
 {
+    (void)version;
     uint32_t offset = 0;
 
     PackInteger8(&msg->recType, &buf[offset], bufLen, &offset);
     PackInteger16(&msg->recVersion, &buf[offset], bufLen - offset, &offset);
-    if (IS_DTLS_VERSION(version)) {
+    if (IS_TRANSTYPE_DATAGRAM(transportType)) {
         PackInteger16(&msg->epoch, &buf[offset], bufLen - offset, &offset);
         PackInteger48(&msg->sequence, &buf[offset], bufLen - offset, &offset);
     }
@@ -1350,7 +1384,7 @@ int32_t FRAME_PackMsg(FRAME_Type *frameType, const FRAME_Msg *msg, uint8_t *buff
         return HITLS_INTERNAL_EXCEPTION;
     }
 
-    if (IS_DTLS_VERSION(frameType->versionType)) {      // DTLS
+    if (IS_TRANSTYPE_DATAGRAM(frameType->transportType)) { // DTLS
         if (bufLen < DTLS_RECORD_HEADER_LEN) {
             return HITLS_INTERNAL_EXCEPTION;
         }
@@ -1375,7 +1409,7 @@ int32_t FRAME_PackMsg(FRAME_Type *frameType, const FRAME_Msg *msg, uint8_t *buff
     }
 
     // Assemble the packet header.
-    PackRecordHeader(frameType->versionType, msg, bodyLen, buffer, headerLen, &headerLen);
+    PackRecordHeader(frameType->versionType, msg, bodyLen, buffer, headerLen, &headerLen, frameType->transportType);
 
     // Splicing body and head
     // If some fields are missing in the header, the packet body is filled with an offset forward.
@@ -1387,4 +1421,18 @@ int32_t FRAME_PackMsg(FRAME_Type *frameType, const FRAME_Msg *msg, uint8_t *buff
     }
     *usedLen = headerLen + bodyLen;
     return ret;
+}
+
+int32_t FRAME_GetTls13DisorderHsMsg(HS_MsgType type, uint8_t *buffer, uint32_t bufLen, uint32_t *usedLen)
+{
+    if (bufLen < 5) {
+        return HITLS_INTERNAL_EXCEPTION;
+    }
+    buffer[0] = type;
+    buffer[1] = 0;
+    buffer[2] = 0;
+    buffer[3] = 1;
+    buffer[4] = 0;
+    *usedLen = 5;
+    return HITLS_SUCCESS;
 }

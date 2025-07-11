@@ -10,57 +10,45 @@
 # EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
 # MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 # See the Mulan PSL v2 for more details.
-cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 
-project(TLS_PROCESS)
-
-set(PROCESS "process")
-set(HITLS_SRC ${PROJECT_SOURCE_DIR}/../../..)
-set(EXECUTABLE_OUTPUT_PATH ${HITLS_SRC}/testcode/output)
-set(SECUREC_INCLUDE ${HITLS_SRC}/platform/Secure_C/include)
-
-include_directories(
-    ${SECUREC_INCLUDE}
-    ${HITLS_SRC}/testcode/framework/tls/resource/include
-    ${HITLS_SRC}/testcode/framework/tls/base/include
-    ${HITLS_SRC}/testcode/framework/tls/process/include
-    ${HITLS_SRC}/testcode/framework/tls/include
-    ${HITLS_SRC}/testcode/framework/tls/transfer/include
-    ${HITLS_SRC}/testcode/framework/tls/rpc/include
-    ${HITLS_SRC}/include/bsl
-    ${HITLS_SRC}/bsl/sal/include
-    ${HITLS_SRC}/bsl/uio/src
-    ${HITLS_SRC}/bsl/uio/include
-    ${HITLS_SRC}/include/tls
-    ${HITLS_SRC}/tls/include
-    ${HITLS_SRC}/config/macro_config
+add_executable(process ${openHiTLS_SRC}/testcode/framework/process/process.c)
+set_target_properties(process PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${openHiTLS_SRC}/testcode/output"
 )
 
-add_executable(${PROCESS} ${PROJECT_SOURCE_DIR}/process.c)
+target_include_directories(process PRIVATE
+    ${openHiTLS_SRC}/platform/Secure_C/include
+    ${openHiTLS_SRC}/testcode/framework/tls/resource/include
+    ${openHiTLS_SRC}/testcode/framework/tls/base/include
+    ${openHiTLS_SRC}/testcode/framework/tls/process/include
+    ${openHiTLS_SRC}/testcode/framework/tls/include
+    ${openHiTLS_SRC}/testcode/framework/tls/transfer/include
+    ${openHiTLS_SRC}/testcode/framework/tls/rpc/include
+    ${openHiTLS_SRC}/include/bsl
+    ${openHiTLS_SRC}/include/crypto
+    ${openHiTLS_SRC}/bsl/sal/include
+    ${openHiTLS_SRC}/bsl/hash/include
+    ${openHiTLS_SRC}/bsl/uio/src
+    ${openHiTLS_SRC}/bsl/uio/include
+    ${openHiTLS_SRC}/include/tls
+    ${openHiTLS_SRC}/include/crypto
+    ${openHiTLS_SRC}/tls/include
+    ${openHiTLS_SRC}/config/macro_config
+)
 
-if(PRINT_TO_TERMINAL)
-    target_compile_options(${PROCESS} PUBLIC -DPRINT_TO_TERMINAL)
+target_link_directories(process
+    PRIVATE
+    ${openHiTLS_SRC}/build
+    ${openHiTLS_SRC}/testcode/output/lib
+    ${openHiTLS_SRC}/platform/Secure_C/lib
+)
+
+set(PROCESS_LIBS tls_hlt tls_frame hitls_tls)
+
+if(ENABLE_PKI AND ${BUILD_PKI} GREATER -1)
+    list(APPEND PROCESS_LIBS hitls_pki)
 endif()
 
-if(ENABLE_FAIL_REPEAT)
-    target_compile_options(${PROCESS} PUBLIC -DFAIL_REPEAT_RUN)
-endif()
+list(APPEND PROCESS_LIBS hitls_crypto hitls_bsl boundscheck pthread dl rec_wrapper)
 
-target_link_directories(${PROCESS}
-    PUBLIC
-        ${HITLS_SRC}/build
-        ${HITLS_SRC}/testcode/framework/tls/lib
-        ${HITLS_SRC}/platform/Secure_C/lib
-)
-target_link_libraries(${PROCESS}
-    tls_hlt    
-    tls_frame
-    hitls_tls
-    hitls_crypto
-    hitls_x509
-    hitls_bsl
-    boundscheck
-    pthread
-    sctp
-    rec_wrapper
-)
+target_link_libraries(process ${PROCESS_LIBS})

@@ -10,6 +10,7 @@
 
 #include "bsl_sal.h"
 #include "bsl_err.h"
+#include "crypt_eal_init.h"
 #include "crypt_algid.h"
 #include "crypt_eal_rand.h"
 #include "hitls_error.h"
@@ -18,7 +19,8 @@
 #include "hitls_cert_init.h"
 #include "hitls_cert.h"
 #include "hitls_crypt_init.h"
-#include "hitls_x509.h"
+#include "hitls_pki_cert.h"
+#include "crypt_errno.h"
 
 #define CERTS_PATH      "../../../testcode/testdata/tls/certificate/der/ecdsa_sha256/"
 #define HTTP_BUF_MAXLEN (18 * 1024) /* 18KB */
@@ -35,24 +37,34 @@ int main(int32_t argc, char *argv[])
     HITLS_X509_Cert *subCA = NULL;
 
     /* 注册BSL内存能力、仅供参考 */
-    BSL_SAL_MemCallback memMthod = {(void *(*)(uint32_t size))malloc, free};
-    BSL_SAL_RegMemCallback(&memMthod);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_MALLOC, malloc);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_FREE, free);
     BSL_ERR_Init();
 
+    ret = CRYPT_EAL_Init(CRYPT_EAL_INIT_CPU | CRYPT_EAL_INIT_PROVIDER);
+    if (ret != CRYPT_SUCCESS) {
+        printf("CRYPT_EAL_Init: error code is %x\n", ret);
+        return ret;
+    }
+
+    ret = CRYPT_EAL_ProviderRandInitCtx(NULL, CRYPT_RAND_SHA256, "provider=default", NULL, 0, NULL);
+    if (ret != CRYPT_SUCCESS) {
+        printf("Init rand failed.\n");
+        goto EXIT;
+    }
     HITLS_CertMethodInit();
-    CRYPT_EAL_RandInit(CRYPT_RAND_SHA256, NULL, NULL, NULL, 0);
     HITLS_CryptMethodInit();
 
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
         printf("Create socket failed.\n");
-        return -1;
+        goto EXIT;
     }
     int option = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option)) < 0) {
         close(fd);
         printf("setsockopt SO_REUSEADDR failed.\n");
-        return -1;
+        goto EXIT;
     }
 
     // Set the protocol and port number
@@ -64,30 +76,30 @@ int main(int32_t argc, char *argv[])
 
     if (connect(fd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) != 0) {
         printf("connect failed.\n");
-        goto exit;
+        goto EXIT;
     }
 
     config = HITLS_CFG_NewTLS12Config();
     if (config == NULL) {
         printf("HITLS_CFG_NewTLS12Config failed.\n");
-        goto exit;
+        goto EXIT;
     }
-    ret = HITLS_CFG_SetCloseCheckKeyUsage(config, false); // disable cert keyusage check
+    ret = HITLS_CFG_SetCheckKeyUsage(config, false); // disable cert keyusage check
     if (ret != HITLS_SUCCESS) {
         printf("Disable check KeyUsage failed.\n");
-        goto exit;
+        goto EXIT;
     }
 
     /* 加载证书：需要用户实现 */
     ret = HITLS_X509_CertParseFile(BSL_FORMAT_ASN1, CERTS_PATH "ca.der", &rootCA);
     if (ret != HITLS_SUCCESS) {
         printf("Parse ca failed.\n");
-        goto exit;
+        goto EXIT;
     }
     ret = HITLS_X509_CertParseFile(BSL_FORMAT_ASN1, CERTS_PATH "inter.der", &subCA);
     if (ret != HITLS_SUCCESS) {
         printf("Parse subca failed.\n");
-        goto exit;
+        goto EXIT;
     }
     HITLS_CFG_AddCertToStore(config, rootCA, TLS_CERT_STORE_TYPE_DEFAULT, true);
     HITLS_CFG_AddCertToStore(config, subCA, TLS_CERT_STORE_TYPE_DEFAULT, true);
@@ -96,42 +108,43 @@ int main(int32_t argc, char *argv[])
     ctx = HITLS_New(config);
     if (ctx == NULL) {
         printf("HITLS_New failed.\n");
-        goto exit;
+        goto EXIT;
     }
 
     uio = BSL_UIO_New(BSL_UIO_TcpMethod());
     if (uio == NULL) {
         printf("BSL_UIO_New failed.\n");
-        goto exit;
+        goto EXIT;
     }
 
     ret = BSL_UIO_Ctrl(uio, BSL_UIO_SET_FD, (int32_t)sizeof(fd), &fd);
     if (ret != HITLS_SUCCESS) {
         BSL_UIO_Free(uio);
         printf("BSL_UIO_SET_FD failed, fd = %u.\n", fd);
-        goto exit;
+        goto EXIT;
     }
 
     ret = HITLS_SetUio(ctx, uio);
     if (ret != HITLS_SUCCESS) {
         BSL_UIO_Free(uio);
         printf("HITLS_SetUio failed. ret = 0x%x.\n", ret);
-        goto exit;
+        goto EXIT;
     }
 
     /* 进行TLS连接、用户需按实际场景考虑返回值 */
     ret = HITLS_Connect(ctx);
     if (ret != HITLS_SUCCESS) {
         printf("HITLS_Connect failed, ret = 0x%x.\n", ret);
-        goto exit;
+        goto EXIT;
     }
 
     /* 向对端发送报文、用户需按实际场景考虑返回值 */
     const uint8_t sndBuf[] = "Hi, this is client\n";
-    ret = HITLS_Write(ctx, sndBuf, sizeof(sndBuf));
+    uint32_t writeLen = 0;
+    ret = HITLS_Write(ctx, sndBuf, sizeof(sndBuf), &writeLen);
     if (ret != HITLS_SUCCESS) {
         printf("HITLS_Write error:error code:%d\n", ret);
-        goto exit;
+        goto EXIT;
     }
 
     /* 读取对端报文、用户需按实际场景考虑返回值 */
@@ -140,18 +153,19 @@ int main(int32_t argc, char *argv[])
     ret = HITLS_Read(ctx, readBuf, HTTP_BUF_MAXLEN, &readLen);
     if (ret != HITLS_SUCCESS) {
         printf("HITLS_Read failed, ret = 0x%x.\n", ret);
-        goto exit;
+        goto EXIT;
     }
 
     printf("get from server size:%u :%s\n", readLen, readBuf);
 
     exitValue = 0;
-exit:
+EXIT:
     HITLS_Close(ctx);
     HITLS_Free(ctx);
     HITLS_CFG_FreeConfig(config);
     close(fd);
     HITLS_X509_CertFree(rootCA);
     HITLS_X509_CertFree(subCA);
+    BSL_UIO_Free(uio);
     return exitValue;
 }

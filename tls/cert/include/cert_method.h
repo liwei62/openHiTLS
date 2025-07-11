@@ -95,6 +95,8 @@ int32_t SAL_CERT_X509Encode(HITLS_Ctx *ctx, HITLS_CERT_X509 *cert, uint8_t *buf,
 /**
  * @brief Parse the certificate.
  *
+ * @param libCtx [IN] library context for provider
+ * @param attrName [IN] attribute name of the provider, maybe NULL
  * @param config [IN] TLS link configuration
  * @param buf    [IN] Certificate encoding data
  * @param len    [IN] Data length
@@ -103,7 +105,8 @@ int32_t SAL_CERT_X509Encode(HITLS_Ctx *ctx, HITLS_CERT_X509 *cert, uint8_t *buf,
  *
  * @return Certificate
  */
-HITLS_CERT_X509 *SAL_CERT_X509Parse(HITLS_Config *config, const uint8_t *buf, uint32_t len,
+HITLS_CERT_X509 *SAL_CERT_X509Parse(HITLS_Lib_Ctx *libCtx, const char *attrName,
+    HITLS_Config *config, const uint8_t *buf, uint32_t len,
     HITLS_ParseType type, HITLS_ParseFormat format);
 
 /**
@@ -143,11 +146,21 @@ void SAL_CERT_X509Free(HITLS_CERT_X509 *cert);
  * @param len    [IN] Data length
  * @param type   [IN] Data type
  * @param format [IN] Data format
+ * @param encodeType [IN] Data encode type
  *
  * @return Key
  */
 HITLS_CERT_Key *SAL_CERT_KeyParse(HITLS_Config *config, const uint8_t *buf, uint32_t len,
-    HITLS_ParseType type, HITLS_ParseFormat format);
+    HITLS_ParseType type, const char *format, const char *encodeType);
+
+/**
+ * @brief Get the parse format string.
+ *
+ * @param format [IN] Data format
+ *
+ * @return Parse format string
+ */
+const char *SAL_CERT_GetParseFormatStr(HITLS_ParseFormat format);
 
 /**
  * @brief   Copy the key.
@@ -217,7 +230,7 @@ int32_t SAL_CERT_KeyCtrl(HITLS_Config *config, HITLS_CERT_Key *key, HITLS_CERT_C
  *
  * @retval HITLS_SUCCESS                succeeded.
  */
-int32_t SAL_CERT_CheckPrivateKey(const HITLS_Config *config, HITLS_CERT_X509 *cert, HITLS_CERT_Key *key);
+int32_t SAL_CERT_CheckPrivateKey(HITLS_Config *config, HITLS_CERT_X509 *cert, HITLS_CERT_Key *key);
 
 #ifdef __cplusplus
 }

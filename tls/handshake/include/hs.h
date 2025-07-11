@@ -48,18 +48,6 @@ void HS_DeInit(TLS_Ctx *ctx);
  */
 int32_t HS_DoHandshake(TLS_Ctx *ctx);
 
-/**
- * @brief   Processing unexpected handshake messages. After the link is established, this function can be invoked to
- * process the handshake messages received during user data transmission
- * @param   ctx [IN] TLS object
- * @param   data [IN] Handshake message
- * @param   len [IN] Message length
- * @param   state [IN/OUT] in:current link state, out:next link state
- *
- * @retval  HITLS_SUCCESS succeeded. The user can continue sending and receiving data.
- * @retval  For details about other error codes, see hitls_error.h
- */
-int32_t HS_RecvUnexpectedMsgProcess(TLS_Ctx *ctx, const uint8_t *data, uint32_t len, CM_State *state);
 
 /**
  * @brief   Generate the session key
@@ -119,17 +107,8 @@ const char *HS_GetStateStr(uint32_t state);
  * @retval HITLS_SUCCESS succeeded.
  * @retval  For details about other error codes, see hitls_error.h
  */
-int32_t HS_CheckKeyUpdateState(const TLS_Ctx *ctx, uint32_t updateType);
+int32_t HS_CheckKeyUpdateState(TLS_Ctx *ctx, uint32_t updateType);
 
-/**
- * @brief   Process the keyupdate message sending process.
- *
- * @param   ctx [IN] TLS context
- *
- * @retval  HITLS_SUCCESS succeeded.
- * @retval  For details about other error codes, see hitls_error.h
- */
-int32_t HS_SendKeyUpdate(TLS_Ctx *ctx);
 
 /**
  * @brief  Obtain the server_name in the handshake TLS context.
@@ -141,16 +120,32 @@ int32_t HS_SendKeyUpdate(TLS_Ctx *ctx);
 const char *HS_GetServerName(const TLS_Ctx *ctx);
 
 /**
- * @brief Check whether app messages can be received.
+ * @brief   Determine and handle the 2MSL timeout
  *
  * @param ctx [IN] TLS context
  *
- * @return true: allows receiving; false: does not allow receiving.
+ * @return string of server_name in the TLS context during the handshake
  */
-bool HS_IsAppDataAllowed(TLS_Ctx *ctx);
+#ifdef HITLS_TLS_PROTO_DTLS12
+int32_t HS_CheckAndProcess2MslTimeout(TLS_Ctx *ctx);
 
+/**
+ * @brief  Send dtls fragment handshake message according to maxRecPayloadLen
+ *
+ * @param  ctx [IN] TLS context
+ * @param  maxRecPayloadLen [IN] the max plaintext size
+ * @param  msgData [IN] the handshake message data need to be send
+ *
+ * @retval HITLS_SUCCESS succeeded.
+ * @retval  For details about other error codes, see hitls_error.h
+ */
+int32_t HS_DtlsSendFragmentHsMsg(TLS_Ctx *ctx, uint32_t maxRecPayloadLen, const uint8_t *msgData);
+#endif
 
 int32_t HS_CheckPostHandshakeAuth(TLS_Ctx *ctx);
+
+#define TLS_IS_FIRST_HANDSHAKE(ctx) ((ctx)->negotiatedInfo.clientVerifyDataSize == 0 \
+                                    || (ctx)->negotiatedInfo.serverVerifyDataSize == 0)
 
 #ifdef __cplusplus
 }

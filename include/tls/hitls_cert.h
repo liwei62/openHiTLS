@@ -24,9 +24,9 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #include "hitls_type.h"
 #include "hitls_cert_type.h"
-#include "hitls_cert_reg.h"
 #include "hitls_error.h"
 
 #ifdef __cplusplus
@@ -305,7 +305,6 @@ int32_t HITLS_SetDefaultPasswordCbUserdata(HITLS_Ctx *ctx, void *userdata);
  */
 void *HITLS_GetDefaultPasswordCbUserdata(HITLS_Ctx *ctx);
 
-#ifndef HITLS_NO_TLCP11
 /**
  * @ingroup hitls_cert
  * @brief   Add the device certificate by the ShangMi(SM) cipher suites.
@@ -315,7 +314,7 @@ void *HITLS_GetDefaultPasswordCbUserdata(HITLS_Ctx *ctx);
  * @param   cert   [IN] Device certificate
  * @param   isClone [IN] Indicates whether deep copy is required. The options are as follows: true: yes; false: no.
  * @param   isTlcpEncCert [IN] Indicates whether the certificate is encrypted by China.
- *                              The options are as follows: true: yes; false: no.
+ * The options are as follows: true: yes; false: no.
  * @retval  HITLS_SUCCESS, if successful.
  *          For details about other error codes, see hitls_error.h.
  */
@@ -330,13 +329,12 @@ int32_t HITLS_CFG_SetTlcpCertificate(HITLS_Config *config, HITLS_CERT_X509 *cert
  * @param   privateKey [IN] Certificate private key
  * @param   isClone [IN] Indicates whether deep copy is required. The options are as follows: true: yes; false: no.
  * @param   isTlcpEncCertPriKey [IN] Indicates whether the private key of the encryption certificate is
- *                                   the private key of the encryption certificate. true: yes; false: no.
+ * the private key of the encryption certificate. true: yes; false: no.
  * @retval  HITLS_SUCCESS, if successful.
  *          For details about other error codes, see hitls_error.h.
  */
 int32_t HITLS_CFG_SetTlcpPrivateKey(HITLS_Config *config, HITLS_CERT_Key *privateKey,
     bool isClone, bool isTlcpEncCertPriKey);
-#endif
 
 /**
  * @ingroup hitls_cert
@@ -474,6 +472,18 @@ int32_t HITLS_CFG_LoadKeyFile(HITLS_Config *config, const char *file, HITLS_Pars
 
 /**
  * @ingroup hitls_cert
+ * @brief   Load the private key of the device certificate from the file, when the provider is used.
+ *
+ * @param   config  [OUT] TLS link configuration
+ * @param   file   [IN] File name
+ * @param   format  [IN] Data format. e.g. "PEM", "ASN1", etc.
+ * @param   type   [IN] Data type. e.g. "PRIKEY_RSA", "PRIKEY_ECC", "PRIKEY_PKCS8_UNENCRYPT",
+ *                "PRIKEY_PKCS8_ENCRYPT", etc.
+ */
+int32_t HITLS_CFG_ProviderLoadKeyFile(HITLS_Config *config, const char *file, const char *format, const char *type);
+
+/**
+ * @ingroup hitls_cert
  * @brief   Read the private key of the device certificate from the buffer.
  *
  * @param   config [OUT] TLS link configuration
@@ -487,6 +497,18 @@ int32_t HITLS_CFG_LoadKeyBuffer(HITLS_Config *config, const uint8_t *buf, uint32
 
 /**
  * @ingroup hitls_cert
+ * @brief   Load the private key of the device certificate from the buffer, when the provider is used.
+ *
+ * @param   config [OUT] TLS link configuration
+ * @param   buf    [IN] Private key data
+ * @param   bufLen [IN] Data length
+ * @param   format [IN] Data format
+ * @param   type   [IN] Data type
+ */
+int32_t HITLS_CFG_ProviderLoadKeyBuffer(HITLS_Config *config, const uint8_t *buf, uint32_t bufLen, const char *format,
+    const char *type);
+/**
+ * @ingroup hitls_cert
  * @brief   Obtain the private key of the certificate in use.
  *
  * @attention The user cannot release the memory.
@@ -494,7 +516,7 @@ int32_t HITLS_CFG_LoadKeyBuffer(HITLS_Config *config, const uint8_t *buf, uint32
  * @param   config [IN] TLS link configuration
  * @retval  Certificate private key
  */
-HITLS_CERT_Key *HITLS_CFG_GetPrivateKey(const HITLS_Config *config);
+HITLS_CERT_Key *HITLS_CFG_GetPrivateKey(HITLS_Config *config);
 
 /**
  * @ingroup hitls_cert
@@ -504,7 +526,7 @@ HITLS_CERT_Key *HITLS_CFG_GetPrivateKey(const HITLS_Config *config);
  * @retval  HITLS_SUCCESS, if successful.
  *          For details about other error codes, see hitls_error.h.
  */
-int32_t HITLS_CFG_CheckPrivateKey(const HITLS_Config *config);
+int32_t HITLS_CFG_CheckPrivateKey(HITLS_Config *config);
 
 /**
  * @ingroup hitls_cert
@@ -525,12 +547,22 @@ int32_t HITLS_SetPrivateKey(HITLS_Ctx *ctx, HITLS_CERT_Key *key, bool isClone);
  *
  * @param   ctx  [IN/OUT] TLS connection handle
  * @param   file  [IN] File name.
- * @param   type  [IN] Parsing type.
+ * @param   format  [IN] Data format.
  * @retval  HITLS_SUCCESS, if successful.
  *          For details about other error codes, see hitls_error.h.
  */
 int32_t HITLS_LoadKeyFile(HITLS_Ctx *ctx, const char *file, HITLS_ParseFormat format);
 
+/**
+ * @ingroup hitls_cert
+ * @brief   Load the private key of the device certificate from the file, when the provider is used.
+ *
+ * @param   ctx  [IN/OUT] TLS connection handle
+ * @param   file  [IN] File name.
+ * @param   format  [IN] Data format.
+ * @param   type  [IN] Data type.
+ */
+int32_t HITLS_ProviderLoadKeyFile(HITLS_Ctx *ctx, const char *file, const char *format, const char *type);
 /**
  * @ingroup hitls_cert
  * @brief   Read the private key of the device certificate from the buffer.
@@ -544,6 +576,18 @@ int32_t HITLS_LoadKeyFile(HITLS_Ctx *ctx, const char *file, HITLS_ParseFormat fo
  */
 int32_t HITLS_LoadKeyBuffer(HITLS_Ctx *ctx, const uint8_t *buf, uint32_t bufLen, HITLS_ParseFormat format);
 
+/**
+ * @ingroup hitls_cert
+ * @brief   Load the private key of the device certificate from the buffer, when the provider is used.
+ *
+ * @param   ctx  [IN/OUT] TLS connection handle
+ * @param   buf    [IN] Private key data.
+ * @param   bufLen [IN] Data length.
+ * @param   format [IN] Data format.
+ * @param   type  [IN] Data type.
+ */
+int32_t HITLS_ProviderLoadKeyBuffer(HITLS_Ctx *ctx, const uint8_t *buf, uint32_t bufLen, const char *format,
+    const char *type);
 /**
  * @ingroup hitls_cert
  * @brief   Obtain the private key of the certificate in use.
@@ -563,7 +607,7 @@ HITLS_CERT_Key *HITLS_GetPrivateKey(HITLS_Ctx *ctx);
  * @retval  HITLS_SUCCESS, if successful.
  *          For details about other error codes, see hitls_error.h.
  */
-int32_t HITLS_CheckPrivateKey(const HITLS_Ctx *ctx);
+int32_t HITLS_CheckPrivateKey(HITLS_Ctx *ctx);
 
 /**
  * @ingroup hitls_cert
@@ -588,13 +632,58 @@ int32_t HITLS_CFG_AddChainCert(HITLS_Config *config, HITLS_CERT_X509 *cert, bool
  * @retval  HITLS_SUCCESS, if successful.
  *          For details about other error codes, see hitls_error.h.
  */
-int32_t HITLS_CFG_AddCertToStore(HITLS_Config *config, HITLS_CERT_X509 *cert, HITLS_CERT_StoreType storeType,
-    bool isClone);
+int32_t HITLS_CFG_AddCertToStore(HITLS_Config *config, HITLS_CERT_X509 *cert,
+    HITLS_CERT_StoreType storeType, bool isClone);
+
+/**
+ * @ingroup hitls_cert
+ * @brief   Parse Certificate file or buffer to X509.
+ *
+ * @param   config [IN] TLS link configuration
+ * @param   buf [IN] Certificate file or buffer
+ * @param   len [IN] bufLen
+ * @param   type [IN] buf type: file or buffer
+ * @param   format [IN] cert type
+ *
+ * @retval  HITLS_CERT_X509
+ */
+HITLS_CERT_X509 *HITLS_CFG_ParseCert(HITLS_Config *config, const uint8_t *buf, uint32_t len,
+    HITLS_ParseType type, HITLS_ParseFormat format);
+
+/**
+ * @ingroup hitls_cert
+ * @brief   Parse Certificate file or buffer to X509.
+ *
+ * @param   config [IN] TLS link configuration
+ * @param   buf [IN] Certificate file or buffer
+ * @param   len [IN] bufLen
+ * @param   type [IN] buf type: file or buffer
+ * @param   format [IN] cert type
+ *
+ * @retval  HITLS_CERT_X509
+ */
+HITLS_CERT_Key *HITLS_CFG_ParseKey(HITLS_Config *config, const uint8_t *buf, uint32_t len,
+    HITLS_ParseType type, HITLS_ParseFormat format);
+
+/**
+ * @ingroup hitls_cert
+ * @brief   Parse Certificate file or buffer to X509.
+ *
+ * @param   config [IN] TLS link configuration
+ * @param   buf [IN] Certificate file or buffer
+ * @param   len [IN] bufLen
+ * @param   type [IN] buf type: file or buffer
+ * @param   format [IN] cert type
+ * @param   encodeType [IN] cert encode type
+ *
+ * @retval  HITLS_CERT_X509
+ */
+HITLS_CERT_Key *HITLS_CFG_ProviderParseKey(HITLS_Config *config, const uint8_t *buf, uint32_t len,
+    HITLS_ParseType type, const char *format, const char *encodeType);
 
 /**
  * @ingroup hitls_cert
  * @brief   Obtain the certificate chain that is being used by the current config.
- *
  * @param   config  [IN] TLS link configuration
  * @retval  The certificate chain that is currently in use
  */
@@ -646,7 +735,7 @@ int32_t HITLS_RemoveCertAndKey(HITLS_Ctx *ctx);
  *
  * @attention This callback function must be compatible with OpenSSL and has the same logic as OpenSSL.
  * @param   isPreverifyOk [IN] Indicates whether the relevant certificate has passed the verification
- *                             (isPreverifyOk=1) or failed (isPreverifyOk=0)
+ * (isPreverifyOk=1) or failed (isPreverifyOk=0)
  * @param   storeCtx [IN] Cert store context
  * @retval  1 indicates success. Other values indicate failure.
  */
@@ -658,6 +747,8 @@ typedef int (*HITLS_VerifyCb)(int32_t isPreverifyOk, HITLS_CERT_StoreCtx *storeC
  *
  * @param   config  [OUT] TLS link configuration
  * @param   callback [IN] Certificate verification callback function
+ * @retval  HITLS_SUCCESS, if successful.
+ * @retval  For other error codes, see hitls_error.h.
  */
 int32_t HITLS_CFG_SetVerifyCb(HITLS_Config *config, HITLS_VerifyCb callback);
 
@@ -666,9 +757,9 @@ int32_t HITLS_CFG_SetVerifyCb(HITLS_Config *config, HITLS_VerifyCb callback);
  * @brief   Obtain the certificate verification callback function.
  *
  * @param   config  [OUT] TLS link configuration
- * @param   callback [IN] Certificate verification callback function
+ * @return  Certificate verification callback function
  */
-HITLS_VerifyCb HITLS_CFG_GetVerifyCb(const HITLS_Config *config);
+HITLS_VerifyCb HITLS_CFG_GetVerifyCb(HITLS_Config *config);
 
 /**
  * @ingroup hitls_cert
@@ -676,6 +767,8 @@ HITLS_VerifyCb HITLS_CFG_GetVerifyCb(const HITLS_Config *config);
  *
  * @param   ctx     [OUT] TLS link object
  * @param   callback [IN] Certificate verification callback function
+ * @retval  HITLS_SUCCESS, if successful.
+ * @retval  For other error codes, see hitls_error.h.
  */
 int32_t HITLS_SetVerifyCb(HITLS_Ctx *ctx, HITLS_VerifyCb callback);
 
@@ -686,7 +779,7 @@ int32_t HITLS_SetVerifyCb(HITLS_Ctx *ctx, HITLS_VerifyCb callback);
  * @param   ctx [IN] TLS link object
  * @retval  Certificate verification callback function
  */
-HITLS_VerifyCb HITLS_GetVerifyCb(const HITLS_Ctx *ctx);
+HITLS_VerifyCb HITLS_GetVerifyCb(HITLS_Ctx *ctx);
 
 /**
  * @ingroup hitls_cert
@@ -746,6 +839,94 @@ int32_t HITLS_CFG_AddExtraChainCert(HITLS_Config *config, HITLS_CERT_X509 *cert)
  * @retval  Attach the certificate chain.
  */
 HITLS_CERT_Chain *HITLS_CFG_GetExtraChainCerts(HITLS_Config *config);
+
+/* If the ClientHello callback is successfully executed, the handshake continues */
+#define HITLS_CERT_CALLBACK_SUCCESS 1
+/* The  ClientHello callback fails. Send an alert message and terminate the handshake */
+#define HITLS_CERT_CALLBACK_FAILED 0
+/* The ClientHello callback is suspended. The handshake process is suspended and the callback is called again */
+#define HITLS_CERT_CALLBACK_RETRY (-1)
+
+/**
+ * @ingroup hitls_cert
+ * @brief   Process the certificate callback.
+ * @attention This callback function is compatible with OpenSSL and has the same logic as OpenSSL.
+ *
+ * @param   ctx [IN] TLS link object
+ * @param   arg [IN] Related parameters arg
+ * @return  HITLS_CERT_CALLBACK_SUCCESS if the callback is successfully executed.
+ *          HITLS_CERT_CALLBACK_FAILED if the callback fails.
+ *          HITLS_CERT_CALLBACK_RETRY if the callback is suspended.
+ */
+typedef int32_t (*HITLS_CertCb)(HITLS_Ctx *ctx, void *arg);
+
+/**
+ * @ingroup hitls_cert
+ * @brief  set the processing certificate callback function, which checks the passed ctx structure and
+ * sets or clear any appropriate certificate, cb can be NULL.
+ * @param   config [OUT] TLS link configuration
+ * @param   certCb [IN] Certificate callback function
+ * @param   arg    [IN] Parameters required in the callback function.
+ * @retval  HITLS_SUCCESS, if successful.
+ * @retval  For other error codes, see hitls_error.h.
+ */
+int32_t HITLS_CFG_SetCertCb(HITLS_Config *config, HITLS_CertCb certCb, void *arg);
+
+/**
+ * @ingroup hitls_cert
+ * @brief  set the processing certificate callback function, which checks the passed ctx structure and
+ * sets or clear any appropriate certificate, cb can be NULL.
+ * @param   ctx [OUT] TLS link configuration
+ * @param   certCb [IN] Certificate callback function
+ * @param   arg    [IN] Parameters required in the callback function.
+ * @retval  HITLS_SUCCESS, if successful.
+ * @retval  For other error codes, see hitls_error.h.
+ */
+int32_t HITLS_SetCertCb(HITLS_Ctx *ctx, HITLS_CertCb certCb, void *arg);
+
+/**
+ * @ingroup hitls_cert
+ * @brief   Key logging callback
+ * @attention This callback function must be compatible with OpenSSL and is logically the same as OpenSSL.
+ *
+ * @param   ctx  [OUT] TLS Link object
+ * @param   line [IN] Content to be recorded
+ */
+typedef void (*HITLS_KeyLogCb)(HITLS_Ctx *ctx, const char *line);
+
+/**
+ * @ingroup hitls_cert
+ * @brief   Sets the callback for recording TLS keys.
+ * @param   config   [OUT] TLS Link Configuration
+ * @param   callback [IN] Callback function for recording keys
+ *
+ * @retval  HITLS_SUCCESS, if successful.
+ * @retval  For other error codes, see hitls_error.h.
+ */
+int32_t HITLS_CFG_SetKeyLogCb(HITLS_Config *config, HITLS_KeyLogCb callback);
+
+/**
+ * @ingroup hitls_cert
+ * @brief   Callback for obtaining TLS key logs
+ * @param   config  [OUT] TLS Link Configuration
+ *
+ * @retval  Callback function for recording key logs
+ */
+HITLS_KeyLogCb HITLS_CFG_GetKeyLogCb(HITLS_Config *config);
+
+/**
+ * @ingroup hitls_cert
+ * @brief If logging is enabled, the master key is logged
+ *
+ * @param ctx           [OUT] TLS Link object.
+ * @param label         [IN] Label
+ * @param secret        [IN] Key
+ * @param secretLen    [IN] Key length.
+ *
+ * @retval  HITLS_SUCCESS, if successful.
+ * @retval  For other error codes, see hitls_error.h.
+ */
+int32_t HITLS_LogSecret(HITLS_Ctx *ctx, const char *label, const uint8_t *secret, size_t secretLen);
 
 #ifdef __cplusplus
 }

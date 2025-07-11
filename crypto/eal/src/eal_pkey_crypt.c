@@ -56,73 +56,134 @@ int32_t CRYPT_EAL_PkeyDecrypt(const CRYPT_EAL_PkeyCtx *pkey, const uint8_t *data
     return pkey->method->decrypt(pkey->key, data, dataLen, out, outLen);
 }
 
+#ifdef HITLS_CRYPTO_RSA
 static int32_t CryptRsaEmsaPairSet(CRYPT_EAL_PkeyCtx *pubKey, CRYPT_EAL_PkeyCtx *prvKey, CRYPT_MD_AlgId hashId)
 {
-    CRYPT_RSA_PkcsV15Para pkcsv15 = {hashId};
-    int32_t ret = CRYPT_EAL_PkeyCtrl(pubKey, CRYPT_CTRL_SET_RSA_EMSA_PKCSV15, &pkcsv15, sizeof(CRYPT_RSA_PkcsV15Para));
+    int32_t mdId = hashId;
+    int32_t ret = CRYPT_EAL_PkeyCtrl(pubKey, CRYPT_CTRL_SET_RSA_EMSA_PKCSV15, &mdId, sizeof(mdId));
     if (ret != CRYPT_SUCCESS) {
         return ret;
     }
-    return CRYPT_EAL_PkeyCtrl(prvKey, CRYPT_CTRL_SET_RSA_EMSA_PKCSV15, &pkcsv15, sizeof(CRYPT_RSA_PkcsV15Para));
+    return CRYPT_EAL_PkeyCtrl(prvKey, CRYPT_CTRL_SET_RSA_EMSA_PKCSV15, &mdId, sizeof(mdId));
+}
+#endif
+
+#ifdef HITLS_CRYPTO_SM2
+static int32_t CryptSm2PairSet(CRYPT_EAL_PkeyCtx *pubKey, CRYPT_EAL_PkeyCtx *prvKey)
+{
+    char *userId = "1234567812345678";
+    int32_t ret = CRYPT_EAL_PkeyCtrl(pubKey, CRYPT_CTRL_SET_SM2_USER_ID, (void *)userId, strlen(userId));
+    if (ret != CRYPT_SUCCESS) {
+        return ret;
+    }
+    return CRYPT_EAL_PkeyCtrl(prvKey, CRYPT_CTRL_SET_SM2_USER_ID, (void *)userId, strlen(userId));
+}
+#endif
+
+#if defined(HITLS_CRYPTO_DSA) || defined(HITLS_CRYPTO_ECDSA) || defined(HITLS_CRYPTO_RSA)
+static int32_t GetSupportedHashId(void)
+{
+#ifdef HITLS_CRYPTO_SHA512
+    return CRYPT_MD_SHA512; // Priority use sha512
+#elif defined(HITLS_CRYPTO_SHA256)
+    return CRYPT_MD_SHA256;
+#elif defined(HITLS_CRYPTO_SHA1)
+    return CRYPT_MD_SHA1;
+#elif defined(HITLS_CRYPTO_SM3)
+    return CRYPT_MD_SM3;
+#elif defined(HITLS_CRYPTO_MD5)
+    return CRYPT_MD_MD5;
+#endif
+    return CRYPT_MD_MAX;
+}
+#endif
+
+static int32_t CryptSetSignParams(CRYPT_EAL_PkeyCtx *pubKey, CRYPT_EAL_PkeyCtx *privKey, CRYPT_MD_AlgId *hashId)
+{
+#if !defined(HITLS_CRYPTO_RSA) && !defined(HITLS_CRYPTO_SM2)
+    (void)privKey;
+#endif
+
+    *hashId = CRYPT_MD_SHA512;
+    switch (CRYPT_EAL_PkeyGetId(pubKey)) {
+#ifdef HITLS_CRYPTO_ED25519
+        case CRYPT_PKEY_ED25519:
+            return CRYPT_SUCCESS;
+#endif
+#if defined(HITLS_CRYPTO_DSA) || defined(HITLS_CRYPTO_ECDSA)
+        case CRYPT_PKEY_DSA:
+        case CRYPT_PKEY_ECDSA:
+            *hashId = GetSupportedHashId();
+            return CRYPT_SUCCESS;
+#endif
+#ifdef HITLS_CRYPTO_RSA
+        case CRYPT_PKEY_RSA:
+            *hashId = GetSupportedHashId();
+            return CryptRsaEmsaPairSet(pubKey, privKey, *hashId);
+#endif
+#ifdef HITLS_CRYPTO_SM2
+        case CRYPT_PKEY_SM2:
+            *hashId = CRYPT_MD_SM3;
+            return CryptSm2PairSet(pubKey, privKey);
+#endif
+        default:
+            return CRYPT_SUCCESS;
+    }
 }
 
 int32_t CRYPT_EAL_PkeyPairCheck(CRYPT_EAL_PkeyCtx *pubKey, CRYPT_EAL_PkeyCtx *prvKey)
 {
     if ((pubKey == NULL) || (prvKey == NULL)) {
-        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        EAL_ERR_REPORT(CRYPT_EVENT_ERR, CRYPT_ALGO_PKEY, CRYPT_PKEY_MAX, CRYPT_NULL_INPUT);
         return CRYPT_NULL_INPUT;
     }
-
     int32_t ret = CRYPT_SUCCESS;
     uint8_t *signedData = NULL;
+    uint32_t signedLen;
+    CRYPT_MD_AlgId hashId;
+    uint8_t toBeSig[] = {1};
+    if (pubKey->id != prvKey->id) {
+        EAL_ERR_REPORT(CRYPT_EVENT_ERR, CRYPT_ALGO_PKEY, pubKey->id, CRYPT_INVALID_ARG);
+        return CRYPT_INVALID_ARG;
+    }
+
+    if (pubKey->method->check != NULL && prvKey->method->check == pubKey->method->check) {
+        ret = pubKey->method->check(pubKey->key, prvKey->key);
+        if (ret != CRYPT_SUCCESS) {
+            EAL_ERR_REPORT(CRYPT_EVENT_ERR, CRYPT_ALGO_PKEY, pubKey->id, ret);
+        }
+        return ret;
+    }
+
     CRYPT_EAL_PkeyCtx *tempPubKey = CRYPT_EAL_PkeyDupCtx(pubKey);
     CRYPT_EAL_PkeyCtx *tempPrivKey = CRYPT_EAL_PkeyDupCtx(prvKey);
     if (tempPubKey == NULL || tempPrivKey == NULL) {
         ret = CRYPT_MEM_ALLOC_FAIL;
-        goto ERR;
+        goto EXIT;
     }
-    CRYPT_MD_AlgId hashId;
-    CRYPT_PKEY_AlgId algId = CRYPT_EAL_PkeyGetId(tempPubKey);
-    switch (algId) {
-        case CRYPT_PKEY_DSA:
-        case CRYPT_PKEY_ED25519:
-        case CRYPT_PKEY_ECDSA:
-            /* RFC8032 5.1.6: ECDSA supports only sha512 as the hash algorithm for signatures.
-             * Other signature algorithms support sha512. Therefore, sha512 is always used here. */
-            hashId = CRYPT_MD_SHA512;
-            break;
-        case CRYPT_PKEY_RSA:
-            hashId = CRYPT_MD_SHA512;
-            ret = CryptRsaEmsaPairSet(tempPubKey, tempPrivKey, hashId);
-            break;
-        case CRYPT_PKEY_SM2:
-            hashId = CRYPT_MD_SM3;
-            break;
-        default:
-            ret = CRYPT_NOT_SUPPORT;
-            break;
-    }
-
+    ret = CryptSetSignParams(tempPubKey, tempPrivKey, &hashId);
     if (ret != CRYPT_SUCCESS) {
-        goto ERR;
+        goto EXIT;
     }
-    uint8_t toBeSig[] = {1};
-    uint32_t signedLen = CRYPT_EAL_PkeyGetSignLen(tempPrivKey);
+    signedLen = CRYPT_EAL_PkeyGetSignLen(tempPrivKey);
     if (signedLen == 0) {
-        ret = CRYPT_ECC_PKEY_ERR_SIGN_LEN;
-        goto ERR;
+        signedLen = CRYPT_EAL_PkeyGetSignLen(tempPubKey);
+        if (signedLen == 0) {
+            ret = CRYPT_ECC_PKEY_ERR_SIGN_LEN;
+            goto EXIT;
+        }
     }
     signedData = BSL_SAL_Malloc(signedLen);
     if (signedData == NULL) {
         ret = CRYPT_MEM_ALLOC_FAIL;
-        goto ERR;
+        goto EXIT;
     }
     ret = CRYPT_EAL_PkeySign(tempPrivKey, hashId, toBeSig, sizeof(toBeSig), signedData, &signedLen);
     if (ret != CRYPT_SUCCESS) {
-        goto ERR;
+        goto EXIT;
     }
     ret = CRYPT_EAL_PkeyVerify(tempPubKey, hashId, toBeSig, sizeof(toBeSig), signedData, signedLen);
-ERR:
+EXIT:
     BSL_SAL_FREE(signedData);
     CRYPT_EAL_PkeyFreeCtx(tempPubKey);
     CRYPT_EAL_PkeyFreeCtx(tempPrivKey);

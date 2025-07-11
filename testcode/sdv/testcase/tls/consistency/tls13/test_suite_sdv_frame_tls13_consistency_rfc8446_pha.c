@@ -87,7 +87,6 @@ extern int32_t __real_REC_Write(TLS_Ctx *ctx, REC_Type recordType, const uint8_t
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC001(void)
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
 
     // Apply and initialize config
@@ -104,40 +103,21 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC001(void)
     ASSERT_TRUE(client != NULL);
     FRAME_LinkObj *server = FRAME_CreateLink(s_config, BSL_UIO_TCP);
     ASSERT_TRUE(server != NULL);
-
     ASSERT_EQ(FRAME_CreateConnection(client, server, true, HS_STATE_BUTT), HITLS_SUCCESS);
-
-    // the construction server sends a certificate request message to the client
-    FRAME_Msg frameMsg = {0};
-    FRAME_Type frameType = {0};
-    frameType.versionType = HITLS_VERSION_TLS13;
-    frameType.recordType = REC_TYPE_HANDSHAKE;
-    frameType.handshakeType = CERTIFICATE_REQUEST;
-    frameType.keyExType = HITLS_KEY_EXCH_ECDHE;
-    ASSERT_TRUE(FRAME_GetDefaultMsg(&frameType, &frameMsg) == HITLS_SUCCESS);
 
     uint32_t sendLen = MAX_RECORD_LENTH;
     uint8_t sendBuf[MAX_RECORD_LENTH] = {0};
-    ASSERT_TRUE(FRAME_PackMsg(&frameType, &frameMsg, sendBuf, sendLen, &sendLen) == HITLS_SUCCESS);
+    ASSERT_TRUE(FRAME_GetTls13DisorderHsMsg(CERTIFICATE_REQUEST, sendBuf, sendLen, &sendLen) == HITLS_SUCCESS);
 
-    FrameUioUserData *ioUserData = BSL_UIO_GetUserData(client->io);
-    ioUserData->recMsg.len = 0;
-    ASSERT_TRUE(FRAME_TransportRecMsg(client->io, sendBuf, sendLen) == HITLS_SUCCESS);
-    FRAME_CleanMsg(&frameType, &frameMsg);
-    memset_s(&frameMsg, sizeof(frameMsg), 0, sizeof(frameMsg));
-
-    STUB_Init();
-    FuncStubInfo tmpStubInfo;
-    STUB_Replace(&tmpStubInfo, RecConnDecrypt, STUB_RecConnDecrypt);
+    ASSERT_EQ(REC_Write(server->ssl, REC_TYPE_HANDSHAKE, sendBuf, sendLen), HITLS_SUCCESS);
+    ASSERT_TRUE(FRAME_TrasferMsgBetweenLink(server, client) == HITLS_SUCCESS);
 
     uint8_t readbuff[READ_BUF_SIZE];
     uint32_t readLen;
     ASSERT_TRUE(client->ssl != NULL);
-
     // The client returns alert ALERT_UNEXPECTED_MESSAGE
-    ASSERT_EQ(HITLS_Read(client->ssl, readbuff, READ_BUF_SIZE, &readLen), HITLS_REC_NORMAL_RECV_UNEXPECT_MSG);
-exit:
-    STUB_Reset(&tmpStubInfo);
+    ASSERT_EQ(HITLS_Read(client->ssl, readbuff, READ_BUF_SIZE, &readLen), HITLS_MSG_HANDLE_UNEXPECTED_MESSAGE);
+EXIT:
     HITLS_CFG_FreeConfig(c_config);
     HITLS_CFG_FreeConfig(s_config);
     FRAME_FreeLink(client);
@@ -164,7 +144,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC010(void)
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
 
     // Apply and initialize config
@@ -216,7 +195,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC010(void)
     // The server sends an alert message, and the connection is interrupted.
     ASSERT_TRUE(client->ssl != NULL);
     ASSERT_EQ(HITLS_Read(client->ssl, readBuf, READ_BUF_SIZE, &readLen), HITLS_REC_NORMAL_RECV_UNEXPECT_MSG);
-exit:
+EXIT:
     STUB_Reset(&tmpStubInfo);
     HITLS_CFG_FreeConfig(c_config);
     HITLS_CFG_FreeConfig(s_config);
@@ -251,9 +230,9 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC018(void)
 
     // Apply for and initialize the configuration file
     config = HITLS_CFG_NewTLS13Config();
-    client = FRAME_CreateLink(config, BSL_UIO_SCTP);
+    client = FRAME_CreateLink(config, BSL_UIO_TCP);
     ASSERT_TRUE(client != NULL);
-    server = FRAME_CreateLink(config, BSL_UIO_SCTP);
+    server = FRAME_CreateLink(config, BSL_UIO_TCP);
     ASSERT_TRUE(server != NULL);
 
     // Configure the client and server to support post-handshake extension
@@ -269,7 +248,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC018(void)
     // the HITLS_VerifyClientPostHandshake interface is invoked
     ASSERT_EQ(HITLS_VerifyClientPostHandshake(client->ssl), HITLS_INVALID_INPUT);
     ASSERT_EQ(HITLS_VerifyClientPostHandshake(server->ssl), HITLS_MSG_HANDLE_STATE_ILLEGAL);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -304,9 +283,9 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC019(void)
 
     // Apply for and initialize the configuration file
     config = HITLS_CFG_NewTLS13Config();
-    client = FRAME_CreateLink(config, BSL_UIO_SCTP);
+    client = FRAME_CreateLink(config, BSL_UIO_TCP);
     ASSERT_TRUE(client != NULL);
-    server = FRAME_CreateLink(config, BSL_UIO_SCTP);
+    server = FRAME_CreateLink(config, BSL_UIO_TCP);
     ASSERT_TRUE(server != NULL);
 
     // Configure the client to support the post-handshake extension
@@ -319,7 +298,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC019(void)
     // The server invokes the HITLS_VerifyClientPostHandshake interface to initiate authentication
     ASSERT_EQ(HITLS_VerifyClientPostHandshake(client->ssl), HITLS_INVALID_INPUT);
     ASSERT_EQ(HITLS_VerifyClientPostHandshake(server->ssl), HITLS_MSG_HANDLE_STATE_ILLEGAL);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);

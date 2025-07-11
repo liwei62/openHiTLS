@@ -12,27 +12,26 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-
+#include "hitls_build.h"
+#if defined(HITLS_TLS_CALLBACK_CERT) || defined(HITLS_TLS_FEATURE_PROVIDER)
 #include <stdint.h>
+#include <string.h>
+#include "bsl_sal.h"
 #include "bsl_err_internal.h"
 #include "hitls_cert_type.h"
 #include "hitls_type.h"
-#include "hitls_x509.h"
+#include "hitls_pki_x509.h"
 #include "bsl_list.h"
 #include "hitls_error.h"
+
 
 static int32_t BuildArrayFromList(HITLS_X509_List *list, HITLS_CERT_X509 **listArray, uint32_t *num)
 {
     HITLS_X509_Cert *elemt = NULL;
     int32_t i = 0;
     int32_t ret;
-    for (list->curr = list->first; list->curr != NULL; list->curr = list->curr->next, i++) {
-        elemt = (HITLS_X509_Cert *)list->curr->data;
-        if (elemt == NULL || i >= list->count) {
-            BSL_ERR_PUSH_ERROR(HITLS_X509_ADAPT_BUILD_CERT_CHAIN_ERR);
-            return HITLS_X509_ADAPT_BUILD_CERT_CHAIN_ERR;
-        }
 
+    for (elemt = BSL_LIST_GET_FIRST(list); elemt != NULL; elemt = BSL_LIST_GET_NEXT(list), i++) {
         int ref = 0;
         ret = HITLS_X509_CertCtrl(elemt, HITLS_X509_REF_UP, (void *)&ref, (int32_t)sizeof(int));
         if (ret != HITLS_SUCCESS) {
@@ -90,17 +89,38 @@ int32_t HITLS_X509_Adapt_BuildCertChain(HITLS_Config *config, HITLS_CERT_Store *
 int32_t HITLS_X509_Adapt_VerifyCertChain(HITLS_Ctx *ctx, HITLS_CERT_Store *store, HITLS_CERT_X509 **list, uint32_t num)
 {
     (void)ctx;
+    /* The default user id as specified in GM/T 0009-2012 */
+    char sm2DefaultUserid[] = "1234567812345678";
     HITLS_X509_List *certList = NULL;
     int32_t ret = BuildCertListFromCertArray(list, num, &certList);
     if (ret != HITLS_SUCCESS) {
         return ret;
     }
+    int64_t sysTime = BSL_SAL_CurrentSysTimeGet();
+    if (sysTime == 0) {
+        ret = HITLS_CERT_SELF_ADAPT_INVALID_TIME;
+        BSL_ERR_PUSH_ERROR(HITLS_CERT_SELF_ADAPT_INVALID_TIME);
+        goto EXIT;
+    }
+    ret = HITLS_X509_StoreCtxCtrl((HITLS_X509_StoreCtx *)store, HITLS_X509_STORECTX_SET_TIME, &sysTime,
+        sizeof(sysTime));
+    if (ret != HITLS_SUCCESS) {
+        BSL_ERR_PUSH_ERROR(ret);
+        goto EXIT;
+    }
+    ret = HITLS_X509_StoreCtxCtrl((HITLS_X509_StoreCtx *)store, HITLS_X509_STORECTX_SET_VFY_SM2_USERID,
+        sm2DefaultUserid, strlen(sm2DefaultUserid));
+    if (ret != HITLS_SUCCESS) {
+        BSL_ERR_PUSH_ERROR(ret);
+        goto EXIT;
+    }
     ret = HITLS_X509_CertVerify((HITLS_X509_StoreCtx *)store, certList);
     if (ret != HITLS_SUCCESS) {
-        BSL_LIST_FREE(certList, (BSL_LIST_PFUNC_FREE)HITLS_X509_CertFree);
-        return ret;
+        BSL_ERR_PUSH_ERROR(ret);
     }
 
+EXIT:
     BSL_LIST_FREE(certList, (BSL_LIST_PFUNC_FREE)HITLS_X509_CertFree);
-    return HITLS_SUCCESS;
+    return ret;
 }
+#endif /* defined(HITLS_TLS_CALLBACK_CERT) || defined(HITLS_TLS_FEATURE_PROVIDER) */

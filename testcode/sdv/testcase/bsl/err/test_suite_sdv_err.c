@@ -98,14 +98,12 @@ static void PushErrorFixTimes(int32_t times)
 
 static void RegThreadFunc(void)
 {
-    BSL_SAL_ThreadCallback cb;
-    cb.pfThreadLockNew = PthreadRWLockNew;
-    cb.pfThreadLockFree = PthreadRWLockFree;
-    cb.pfThreadReadLock = PthreadRWLockReadLock;
-    cb.pfThreadWriteLock = PthreadRWLockWriteLock;
-    cb.pfThreadUnlock = PthreadRWLockUnlock;
-    cb.pfThreadGetId = PthreadGetId;
-    BSL_SAL_RegThreadCallback(&cb);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_NEW_CB_FUNC, PthreadRWLockNew);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_FREE_CB_FUNC, PthreadRWLockFree);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_READ_LOCK_CB_FUNC, PthreadRWLockReadLock);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_WRITE_LOCK_CB_FUNC, PthreadRWLockWriteLock);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_UNLOCK_CB_FUNC, PthreadRWLockUnlock);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_GET_ID_CB_FUNC, PthreadGetId);
 }
 
 /* END_HEADER */
@@ -175,7 +173,7 @@ void SDV_BSL_ERR_FUNC_TC001(void)
     BSL_ERR_RemoveErrorStack(false);
 
     ASSERT_TRUE(BSL_ERR_GetLastError() == BSL_SUCCESS);
-exit:
+EXIT:
     BSL_ERR_DeInit();
     return;
 }
@@ -186,8 +184,8 @@ exit:
  * @title  After stacks are not pushed or cleared, call BSL_ERR_GetLastError to query all error stacks.
  * @precon  nan
  * @brief
- *    1. Call BSL_SAL_RegMemCallback to initialize the memory. Expected result 1 is obtained.
- *    2. Call BSL_SAL_RegThreadCallback to initialize the thread. Expected result 2 is obtained.
+ *    1. Call BSL_SAL_CallBack_Ctrl to initialize the memory. Expected result 1 is obtained.
+ *    2. Call BSL_SAL_CallBack_Ctrl to initialize the thread. Expected result 2 is obtained.
  *    3. Call BSL_ERR_Init for initialization. Expected result 3 is obtained.
  *    4. Call BSL_ERR_GetLastError to obtain stack information. Expected result 4 is obtained.
  *    5. Call ERR_PUSH_ERROR to push stack layer 5. Expected result 5 is obtained.
@@ -209,17 +207,16 @@ exit:
  *    10. BSL_SUCCESS
  */
 /* BEGIN_CASE */
+
 void SDV_BSL_ERR_STACK_FUNC_TC001(int isRemoveAll)
 {
     TestMemInit();
-    BSL_SAL_ThreadCallback cb;
-    cb.pfThreadLockNew = PthreadRWLockNew;
-    cb.pfThreadLockFree = PthreadRWLockFree;
-    cb.pfThreadReadLock = PthreadRWLockReadLock;
-    cb.pfThreadWriteLock = PthreadRWLockWriteLock;
-    cb.pfThreadUnlock = PthreadRWLockUnlock;
-    cb.pfThreadGetId = PthreadGetId;
-    ASSERT_TRUE(BSL_SAL_RegThreadCallback(&cb) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_NEW_CB_FUNC, PthreadRWLockNew) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_FREE_CB_FUNC, PthreadRWLockFree) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_READ_LOCK_CB_FUNC, PthreadRWLockReadLock) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_WRITE_LOCK_CB_FUNC, PthreadRWLockWriteLock) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_UNLOCK_CB_FUNC, PthreadRWLockUnlock) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_GET_ID_CB_FUNC, PthreadGetId) == BSL_SUCCESS);
     ASSERT_TRUE(BSL_ERR_Init() == BSL_SUCCESS);
 
     ASSERT_TRUE(BSL_ERR_GetLastError() == BSL_SUCCESS);
@@ -261,7 +258,7 @@ void SDV_BSL_ERR_STACK_FUNC_TC001(int isRemoveAll)
     ASSERT_TRUE(BSL_ERR_PeekErrorFileLine((const char **)&file, &lineNo) == 1);
     ASSERT_TRUE(strcmp(file, "NA") == 0);
     ASSERT_TRUE(lineNo == 0);
-exit:
+EXIT:
     BSL_ERR_ClearError();
     BSL_ERR_DeInit();
 }
@@ -288,14 +285,12 @@ void SDV_BSL_ERR_COMPATIBILITY_FUNC_TC001(void)
     SKIP_TEST();
 #else
     TestMemInit();
-    BSL_SAL_ThreadCallback cb;
-    cb.pfThreadLockNew = PthreadRWLockNew;
-    cb.pfThreadLockFree = PthreadRWLockFree;
-    cb.pfThreadReadLock = PthreadRWLockReadLock;
-    cb.pfThreadWriteLock = PthreadRWLockWriteLock;
-    cb.pfThreadUnlock = PthreadRWLockUnlock;
-    cb.pfThreadGetId = PthreadGetId;
-    ASSERT_TRUE(BSL_SAL_RegThreadCallback(&cb) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_NEW_CB_FUNC, PthreadRWLockNew) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_FREE_CB_FUNC, PthreadRWLockFree) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_READ_LOCK_CB_FUNC, PthreadRWLockReadLock) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_WRITE_LOCK_CB_FUNC, PthreadRWLockWriteLock) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_UNLOCK_CB_FUNC, PthreadRWLockUnlock) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_GET_ID_CB_FUNC, PthreadGetId) == BSL_SUCCESS);
     ASSERT_TRUE(BSL_ERR_Init() == BSL_SUCCESS);
     // Construct an exception to trigger the error code module to push the stack.
     ASSERT_TRUE(BSL_UIO_SetMethodType(NULL, 1) == BSL_NULL_INPUT);
@@ -304,7 +299,7 @@ void SDV_BSL_ERR_COMPATIBILITY_FUNC_TC001(void)
     int32_t err = BSL_ERR_GetLastErrorFileLine((const char **)&file, &line);
     ASSERT_TRUE(strcmp(file, "uio_abstraction.c") == 0);
     ASSERT_TRUE(err == BSL_NULL_INPUT);
-exit:
+EXIT:
     BSL_ERR_ClearError();
     BSL_ERR_DeInit();
 #endif
@@ -328,20 +323,18 @@ exit:
 void SDV_BSL_ERR_STACK_API_TC001(int isRemoveAll)
 {
     TestMemInit();
-    BSL_SAL_ThreadCallback cb;
-    cb.pfThreadLockNew = PthreadRWLockNew;
-    cb.pfThreadLockFree = PthreadRWLockFree;
-    cb.pfThreadReadLock = PthreadRWLockReadLock;
-    cb.pfThreadWriteLock = PthreadRWLockWriteLock;
-    cb.pfThreadUnlock = PthreadRWLockUnlock;
-    cb.pfThreadGetId = PthreadGetId;
-    ASSERT_TRUE(BSL_SAL_RegThreadCallback(&cb) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_NEW_CB_FUNC, PthreadRWLockNew) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_FREE_CB_FUNC, PthreadRWLockFree) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_READ_LOCK_CB_FUNC, PthreadRWLockReadLock) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_WRITE_LOCK_CB_FUNC, PthreadRWLockWriteLock) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_UNLOCK_CB_FUNC, PthreadRWLockUnlock) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_GET_ID_CB_FUNC, PthreadGetId) == BSL_SUCCESS);
     ASSERT_TRUE(BSL_ERR_Init() == BSL_SUCCESS);
 
     BSL_ERR_RemoveErrorStack((isRemoveAll == 1) ? true : false);
     BSL_ERR_ClearError();
     BSL_ERR_ClearError();
-exit:
+EXIT:
     BSL_ERR_DeInit();
 }
 /* END_CASE */
@@ -409,7 +402,7 @@ void SDV_BSL_ERR_MARK_FUNC_TC001(void)
     ASSERT_TRUE(ret == BSL_SUCCESS);
     ret = BSL_ERR_GetLastError();
     ASSERT_TRUE(ret == BSL_UIO_IO_BUSY);
-exit:
+EXIT:
     BSL_ERR_DeInit();
 }
 /* END_CASE */
@@ -449,7 +442,7 @@ void SDV_BSL_ERR_STRING_FUNC_TC001(void)
     ASSERT_TRUE(BSL_ERR_AddErrStringBatch(descList, 2) == BSL_SUCCESS);
     ASSERT_TRUE(BSL_ERR_GetString(BSL_UIO_FAIL) == uioFail);
     ASSERT_TRUE(BSL_ERR_GetString(BSL_TLV_ERR_NO_WANT_TYPE) == tlvFail);
-exit:
+EXIT:
     BSL_ERR_RemoveErrStringBatch();
     BSL_ERR_DeInit();
 }
@@ -513,7 +506,7 @@ void SDV_BSL_ERR_AVLLR_FUNC_TC001(void)
 
     BSL_AVL_DeleteTree(root, NULL);
 
-exit:
+EXIT:
     BSL_ERR_DeInit();
 }
 /* END_CASE */
@@ -586,7 +579,7 @@ void SDV_BSL_ERR_AVLLL_FUNC_TC001(void)
 
     BSL_AVL_DeleteTree(root, NULL);
 
-exit:
+EXIT:
     BSL_ERR_DeInit();
 }
 /* END_CASE */
@@ -631,7 +624,7 @@ void SDV_BSL_ERR_AVLRL_FUNC_TC001(void)
 
     BSL_AVL_DeleteTree(root, NULL);
 
-exit:
+EXIT:
     BSL_ERR_DeInit();
 }
 /* END_CASE */

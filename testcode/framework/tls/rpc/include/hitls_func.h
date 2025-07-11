@@ -34,6 +34,9 @@ int HitlsInit(void);
 */
 void* HitlsNewCtx(TLS_VERSION tlsVersion);
 
+HITLS_Config *HitlsProviderNewCtx(char *providerPath, char (*providerNames)[MAX_PROVIDER_NAME_LEN], int *providerLibFmts,
+    int providerCnt, char *attrName, TLS_VERSION tlsVersion);
+
 /**
 * @brief HiTLS Releases connection management resources.
 */
@@ -62,7 +65,7 @@ int HitlsSetSsl(void *ssl, HLT_Ssl_Config *sslConfig);
 /**
 * @brief HiTLS waits for a TLS connection.
 */
-int HitlsAccept(void *ssl);
+void *HitlsAccept(void *ssl);
 
 /**
 * @brief The HiTLS initiates a TLS connection.

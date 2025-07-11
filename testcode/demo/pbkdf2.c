@@ -22,6 +22,10 @@
 #include "bsl_err.h"
 #include "crypt_algid.h"
 #include "crypt_eal_kdf.h"
+#include "bsl_params.h"
+#include "crypt_params_key.h"
+
+#define PBKDF2_PARAM_LEN (4)
 
 void *StdMalloc(uint32_t len) {
     return malloc((size_t)len);
@@ -33,8 +37,6 @@ void PrintLastError(void) {
     BSL_ERR_GetLastErrorFileLine(&file, &line);
     printf("failed at file %s at line %d\n", file, line);
 }
-
-BSL_SAL_MemCallback cb = {StdMalloc, free};
 
 int main(void)
 {
@@ -60,25 +62,47 @@ int main(void)
 
     /**
      * Before calling the algorithm APIs,
-     * call the BSL_SAL_RegMemCallback function to register the malloc and free functions.
+     * call the BSL_SAL_CallBack_Ctrl function to register the malloc and free functions.
      * Execute this step only once. If the memory allocation ability of Linux is available,
      * the two functions can be registered using Linux by default.
     */
-    BSL_SAL_RegMemCallback(&cb);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_MALLOC, StdMalloc);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_FREE, free);
 
-    ret = CRYPT_EAL_Pbkdf2(CRYPT_MAC_HMAC_SHA256, key, sizeof(key), salt, sizeof(salt), iterations, out, outLen);
-    if (ret != CRYPT_SUCCESS) {
-        printf("pbkdf2 error code is %x\n", ret);
+    CRYPT_EAL_KdfCTX *ctx = CRYPT_EAL_KdfNewCtx(CRYPT_KDF_PBKDF2);
+    if (ctx == NULL) {
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
+    CRYPT_MAC_AlgId id = CRYPT_MAC_HMAC_SHA256;
+    BSL_Param params[5] = {{0}, {0}, {0}, {0}, BSL_PARAM_END};
+    (void)BSL_PARAM_InitValue(&params[0], CRYPT_PARAM_KDF_MAC_ID, BSL_PARAM_TYPE_UINT32, &id, sizeof(id));
+    (void)BSL_PARAM_InitValue(&params[1], CRYPT_PARAM_KDF_PASSWORD, BSL_PARAM_TYPE_OCTETS, key, sizeof(key));
+    (void)BSL_PARAM_InitValue(&params[2], CRYPT_PARAM_KDF_SALT, BSL_PARAM_TYPE_OCTETS, salt, sizeof(salt));
+    (void)BSL_PARAM_InitValue(&params[3], CRYPT_PARAM_KDF_ITER, BSL_PARAM_TYPE_UINT32, &iterations, sizeof(iterations));
+    ret = CRYPT_EAL_KdfSetParam(ctx, params);
+    if (ret != CRYPT_SUCCESS) {
+        printf("error code is %x\n", ret);
+        PrintLastError();
+        goto EXIT;
+    }
+
+    ret = CRYPT_EAL_KdfDerive(ctx, out, outLen);
+    if (ret != CRYPT_SUCCESS) {
+        printf("error code is %x\n", ret);
+        PrintLastError();
+        goto EXIT;
+    }
+
     if (memcmp(out, result, sizeof(result)) != 0) {
         printf("failed to compare test results\n");
         ret = -1;
-        goto exit;
+        goto EXIT;
     }
     printf("pass \n");
-exit:
+
+EXIT:
     BSL_ERR_DeInit();
+    CRYPT_EAL_KdfFreeCtx(ctx);
     return ret;
 }

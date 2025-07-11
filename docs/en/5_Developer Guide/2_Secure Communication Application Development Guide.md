@@ -29,7 +29,7 @@ Currently, openHiTLS supports the following protocol versions:
 | Quiet shutdown mode| **HITLS_CFG_SetQuietShutdown** (disabled by default)|
 | Extend primary key| **HITLS_CFG_SetExtenedMasterSecretSupport** (enabled by default)|
 | Support **sessionTicket**| **HITLS_CFG_SetSessionTicketSupport** (enabled by default)|
-| Verify **keyUsage**| **HITLS_CFG_SetCloseCheckKeyUsage** (enabled by default)|
+| Verify **keyUsage**| **HITLS_CFG_SetCheckKeyUsage** (enabled by default)|
 | Auto-generate DH parameter| **HITLS_CFG_SetDhAutoSupport** (enabled by default)|
 
 ### TLS1.3 Specifications
@@ -50,7 +50,7 @@ Currently, openHiTLS supports the following protocol versions:
 | Quiet shutdown mode| **HITLS_CFG_SetQuietShutdown** (disabled by default)|
 | Extend primary key| **HITLS_CFG_SetExtenedMasterSecretSupport** (enabled by default)|
 | Support **sessionTicket**| **HITLS_CFG_SetSessionTicketSupport** (enabled by default)|
-| Verify **keyUsage**| **HITLS_CFG_SetCloseCheckKeyUsage** (enabled by default)|
+| Verify **keyUsage**| **HITLS_CFG_SetCheckKeyUsage** (enabled by default)|
 | Auto-generate DH parameter| **HITLS_CFG_SetDhAutoSupport** (enabled by default)|
 
 ### TLCP Specifications
@@ -68,7 +68,7 @@ Currently, openHiTLS supports the following protocol versions:
 | Verify client certificate only once| **HITLS_CFG_SetClientOnceVerifySupport** (disabled by default)|
 | Send handshake packets in a single flight| **HITLS_CFG_SetFlightTransmitSwitch** (disabled by default)|
 | Quiet shutdown mode| **HITLS_CFG_SetQuietShutdown** (disabled by default)|
-| Verify **keyUsage**| **HITLS_CFG_SetCloseCheckKeyUsage** (enabled by default)|
+| Verify **keyUsage**| **HITLS_CFG_SetCheckKeyUsage** (enabled by default)|
 
 ### Extended Capabilities
 
@@ -126,129 +126,29 @@ do {
 
 ### Dependencies
 
-The dependency on certain algorithm implementations and certificate parsing varies depending on product requirements. As such, openHiTLS offers registration interfaces for products to register interfaces that meet their specific requirements. For details about the interfaces that openHiTLS depends on, see the following headers file of the API manual:
-
-- [hitls_cert_reg.h](https://apidoc.openhitls.net/d4/d9a/a00246.html)
-- [hitls_crypt_reg.h](https://apidoc.openhitls.net/d0/da7/a00250.html)
-
-Registering algorithm-related callback functions:
+The openHiTLS algorithm and certificate are decoupled from the protocol layer. Currently, it provides a self-implemented callback registration capability. The registration-related functions are as follows:
 
 ```c
-/** 
- * @brief   Callback functions that must be registered
- */ 
-typedef struct { 
-    CRYPT_RandBytesCallback randBytes;                  /**<; Obtain a random number. */
-    CRYPT_HmacSizeCallback hmacSize;                    /**<; HMAC: Obtain the HMAC length based on the hash algorithm. */
-    CRYPT_HmacInitCallback hmacInit;                    /**<; HMAC: Initialize the context. */
-    CRYPT_HmacFreeCallback hmacFree;                    /**<; HMAC: Release the context. */
-    CRYPT_HmacUpdateCallback hmacUpdate;                /**<; HMAC: Add input data. */
-    CRYPT_HmacFinalCallback hmacFinal;                  /**<; HMAC: Output results. */
-    CRYPT_HmacCallback hmac;                            /**<; HMAC: Use the complete HMAC function. */
-    CRYPT_DigestSizeCallback digestSize;                /**<; HASH: Obtain the hash length. */
-    CRYPT_DigestInitCallback digestInit;                /**<; HASH: Initialize the context. */
-    CRYPT_DigestCopyCallback digestCopy;                /**<; HASH: Copy the hash context. */
-    CRYPT_DigestFreeCallback digestFree;                /**<; HASH: Release the context. */
-    CRYPT_DigestUpdateCallback digestUpdate;            /**<; HASH: Add input data. */
-    CRYPT_DigestFinalCallback digestFinal;              /**<; HASH: Output hash results. */
-    CRYPT_DigestCallback digest;                        /**<; HASH: Use the complete hash function. */
-    CRYPT_EncryptCallback encrypt;                      /**<; TLS encryption: Provide the encryption capability for the record layer. */
-    CRYPT_DecryptCallback decrypt;                      /**<; TLS decryption: Provide the decryption capability for the record layer. */
-} HITLS_CRYPT_BaseMethod; 
-
-/** 
- * @brief   Callback functions that need to be registered for ECDH
- */ 
-typedef struct { 
-    CRYPT_GenerateEcdhKeyPairCallback generateEcdhKeyPair;      /**&lt;; ECDH: Generate a key pair based on the elliptic curve parameters. */
-    CRYPT_FreeEcdhKeyCallback freeEcdhKey;                      /**&lt;; ECDH: Release the elliptic curve key. */
-    CRYPT_GetEcdhEncodedPubKeyCallback getEcdhPubKey;           /**&lt;; ECDH: Extract public key data. */
-    CRYPT_CalcEcdhSharedSecretCallback calcEcdhSharedSecret;    /**&lt;; ECDH: Calculate the shared key based on the local key and peer public key data. */
-} HITLS_CRYPT_EcdhMethod; 
-
-/** 
- * @brief   Callback functions that need to be registered for DH
- */ 
-typedef struct { 
-    CRYPT_GenerateDhKeyBySecbitsCallback generateDhKeyBySecbits;    /**&lt;; DH: Generate a key pair based on `secbits`. */
-    CRYPT_GenerateDhKeyByParamsCallback generateDhKeyByParams;      /**&lt;; DH: Generate a key pair based on DH parameters. */
-    CRYPT_FreeDhKeyCallback freeDhKey;                              /**&lt;; DH: Release the key. */
-    CRYPT_DHGetParametersCallback getDhParameters;                  /**&lt;; DH: Leverage the key handle to obtain `p`, `g`, `plen`, and `glen`. */
-    CRYPT_GetDhEncodedPubKeyCallback getDhPubKey;                   /**&lt;; DH: Extract public key data. */
-    CRYPT_CalcDhSharedSecretCallback calcDhSharedSecret;            /**&lt;; DH: Calculate the shared key based on the local key and peer public key data. */
-} HITLS_CRYPT_DhMethod; 
+/**
+ * @brief   Register the default certificate callback function
+ */
+int32_t HITLS_CertMethodInit(void);
 
 /**
-    * @brief   Callback functions that need to be registered for KDF
+ * @brief   Register the default algorithm callback function
  */
-typedef struct {
-       CRYPT_HkdfExtractCallback hkdfExtract;
-       CRYPT_HkdfExpandCallback hkdfExpand;
-} HITLS_CRYPT_KdfMethod;
-
-/** 
- * @brief   Register fundamental callback functions
- */ 
-int32_t HITLS_CRYPT_RegisterBaseMethod(HITLS_CRYPT_BaseMethod *userCryptCallBack); 
-
-/** 
- * @brief   Register ECDH callback functions
- */ 
-int32_t HITLS_CRYPT_RegisterEcdhMethod(HITLS_CRYPT_EcdhMethod *userCryptCallBack); 
-
-/** 
- * @brief   Register DH callback functions
- */ 
-int32_t HITLS_CRYPT_RegisterDhMethod(const HITLS_CRYPT_DhMethod *userCryptCallBack);
-
-/** 
- * @brief   Register HKDF callback functions
- */ 
-int32_t HITLS_CRYPT_RegisterHkdfMethod(HITLS_CRYPT_KdfMethod *userCryptCallBack);
-```
-
-Registering certificate-related callback functions:
-
-```c
-/** 
- * @brief   Callback functions that must be registered
- */ 
-typedef struct {
-    CERT_StoreNewCallBack certStoreNew;             /**< Create a certificate store. */
-    CERT_StoreDupCallBack certStoreDup;             /**< Copy the certificate store. */
-    CERT_StoreFreeCallBack certStoreFree;           /**< Release the certificate store. */
-    CERT_StoreCtrlCallBack certStoreCtrl;           /**< Control the certificate store. */
-    CERT_BuildCertChainCallBack buildCertChain;     /**< Build a certificate chain. */
-    CERT_VerifyCertChainCallBack verifyCertChain;   /**< Verify the certificate chain. */
-
-    CERT_CertEncodeCallBack certEncode;             /**&lt; Encode certificates. */
-    CERT_CertParseCallBack certParse;               /**&lt; Decode certificates. */
-    CERT_CertDupCallBack certDup;                   /**&lt; Deep-copy certificates. */
-    CERT_CertRefCallBack certRef;                   /**&lt; Increase certificate references by 1. */
-    CERT_CertFreeCallBack certFree;                 /**&lt; Release certificates. */
-    CERT_CertCtrlCallBack certCtrl;                 /**&lt; Control certificates. */
-
-    CERT_KeyParseCallBack keyParse;                 /**&lt; Parse keys. */
-    CERT_KeyDupCallBack keyDup;                     /**&lt; Deep-copy keys. */
-    CERT_KeyFreeCallBack keyFree;                   /**&lt; Release keys. */
-    CERT_KeyCtrlCallBack keyCtrl;                   /**&lt; Control keys. */
-    CERT_CreateSignCallBack createSign;             /**&lt; Create a signature. */
-    CERT_VerifySignCallBack verifySign;             /**&lt; Verify the signature. */
-    CERT_EncryptCallBack encrypt;                   /**&lt; Encrypt key exchange. */
-    CERT_DecryptCallBack decrypt;                   /**&lt; Decrypt key exchange. */
-
-    CERT_CheckPrivateKeyCallBack checkPrivateKey;   /**&lt; Check whether the certificates and keys match. */
-} HITLS_CERT_MgrMethod;
+void HITLS_CryptMethodInit(void);
 
 /**
- * @brief   Register certificate-related callback functions
+ * @brief   Registering memory management callback functions
  */
-int32_t HITLS_CERT_RegisterMgrMethod(HITLS_CERT_MgrMethod *method);
+int32_t BSL_SAL_CallBack_Ctrl(BSL_SAL_CB_FUNC_TYPE funcType, void *funcCb);
 
 /**
- * @brief   Deregister certificate-related callback functions
+ * @brief   Initialize global random number
  */
-void HITLS_CERT_DeinitMgrMethod(void);
+int32_t CRYPT_EAL_RandInit(CRYPT_RAND_AlgId id, CRYPT_RandSeedMethod *seedMeth, void *seedCtx,
+    const uint8_t *pers, uint32_t persLen);
 ```
 
 ## Time Sequence Interaction of Secure Communication Applications
@@ -269,7 +169,7 @@ To use the certificate authentication-based client, you need both a trust certif
 
 1. Pool used to verify the peer certificate chain
    When using algorithm suites that require server identity verification, the server sends certificates and the certificate chain to the TLS client through handshake messages. If the certificates and certificate chain are not issued by any authority trusted by the client, the client will send a critical alarm and terminate the handshake process. If no trust certificate pool is configured, certificate chain verification will fail, resulting in a TLS handshake failure.
-   
+
    For the configuration context, users can use the following interface to configure a trust certificate pool for verifying peer certificates:
 
     ```c
@@ -285,7 +185,7 @@ To use the certificate authentication-based client, you need both a trust certif
 
 2. Pool used to generate the local certificate chain
    As part of the handshake process, the server sends its local certificate to the peer for verification. If the certificate chain for the local certificate is not configured, the server will search the trust certificate pool for the chain and send it to the peer. If the server has sent a certificate chain, it can request the TLS client's certificate to verify the client's identity, which is known as ***two-way authentication***. The TLS client will then send its local certificate and certificate chain to the server through handshake messages. If the local certificate is not found in the configured trust certificate pool or the pool is not configured, the client will send an empty certificate message. Whether the handshake can proceed depends on the server's behavior.
-   
+
    Users can use the following interface to configure a trust certificate pool for generating the local certificate chain:
 
     ```c
@@ -437,31 +337,31 @@ uint32_t ExampleClientCb(HITLS_Ctx *ctx, const uint8_t *hint, uint8_t *identity,
 }
 
 
-int main(int32_t argc, char *argv[]) 
-{ 
+int main(int32_t argc, char *argv[])
+{
     ...
-    config = HITLS_CFG_NewTLS12Config(); 
-    if (config == NULL) { 
-        printf("HITLS_CFG_NewTLS12Config failed.\n"); 
-        return -1; 
+    config = HITLS_CFG_NewTLS12Config();
+    if (config == NULL) {
+        printf("HITLS_CFG_NewTLS12Config failed.\n");
+        return -1;
     }
-	uint16_t cipherSuite = HITLS_PSK_WITH_AES_128_GCM_SHA256;
-	// config cipher suite
+    uint16_t cipherSuite = HITLS_PSK_WITH_AES_128_GCM_SHA256;
+    // config cipher suite
     if (HITLS_CFG_SetCipherSuites(config, &cipherSuite, 1) != HITLS_SUCCESS) {
         printf("HITLS_CFG_SetCipherSuites err\n");
         return -1;
     }
-	// config PSK callbacks
-	if (HITLS_CFG_SetPskClientCallback(config, (HITLS_PskClientCb)ExampleClientCb) != HITLS_SUCCESS) {
+    // config PSK callbacks
+    if (HITLS_CFG_SetPskClientCallback(config, (HITLS_PskClientCb)ExampleClientCb) != HITLS_SUCCESS) {
         printf("HITLS_CFG_SetPskClientCallback err\n");
         return -1;
     }
 
-    ctx = HITLS_New(config); 
-    if (ctx == NULL) { 
-        printf("HITLS_New failed.\n"); 
-        goto exit; 
-    } 
+    ctx = HITLS_New(config);
+    if (ctx == NULL) {
+        printf("HITLS_New failed.\n");
+        goto EXIT;
+    }
 
     ...
 }
@@ -472,16 +372,16 @@ int main(int32_t argc, char *argv[])
 The steps except for the following are the same as those described in "Certificate Authentication-based Client."
 
 ```c
-config = HITLS_CFG_NewTLCPConfig(); 
-if (config == NULL) { 
-	printf("HITLS_CFG_NewTLCPConfig failed.\n"); 
-	return -1; 
+config = HITLS_CFG_NewTLCPConfig();
+if (config == NULL) {
+    printf("HITLS_CFG_NewTLCPConfig failed.\n");
+    return -1;
 }
 uint16_t cipherSuite = HITLS_ECC_SM4_CBC_SM3;
 // Configure the algorithm suite.
 if (HITLS_CFG_SetCipherSuites(config, &cipherSuite, 1) != HITLS_SUCCESS) {
-	printf("HITLS_CFG_SetCipherSuites err\n");
-	return -1;
+    printf("HITLS_CFG_SetCipherSuites err\n");
+    return -1;
 }
 
 /* Load certificates. This capability needs to be implemented by users. */
@@ -593,31 +493,31 @@ uint32_t ExampleServerCb(HITLS_Ctx *ctx, const uint8_t *identity, uint8_t *psk, 
     return pskTransUsedLen;
 }
 
-int main(int32_t argc, char *argv[]) 
-{ 
+int main(int32_t argc, char *argv[])
+{
     ...
-    config = HITLS_CFG_NewTLS12Config(); 
-    if (config == NULL) { 
-        printf("HITLS_CFG_NewTLS12Config failed.\n"); 
-        return -1; 
+    config = HITLS_CFG_NewTLS12Config();
+    if (config == NULL) {
+        printf("HITLS_CFG_NewTLS12Config failed.\n");
+        return -1;
     }
-	uint16_t cipherSuite = HITLS_PSK_WITH_AES_128_GCM_SHA256;
-	// config cipher suite
+    uint16_t cipherSuite = HITLS_PSK_WITH_AES_128_GCM_SHA256;
+    // config cipher suite
     if (HITLS_CFG_SetCipherSuites(config, &cipherSuite, 1) != HITLS_SUCCESS) {
         printf("HITLS_CFG_SetCipherSuites err\n");
         return -1;
     }
-	// config PSK callback
-	if (HITLS_CFG_SetPskServerCallback(tlsConfig, (HITLS_PskServerCb)ExampleServerCb) != HITLS_SUCCESS) {
+    // config PSK callback
+    if (HITLS_CFG_SetPskServerCallback(tlsConfig, (HITLS_PskServerCb)ExampleServerCb) != HITLS_SUCCESS) {
         printf("HITLS_CFG_SetPskClientCallback err\n");
         return -1;
     }
 
-    ctx = HITLS_New(config); 
-    if (ctx == NULL) { 
-        printf("HITLS_New failed.\n"); 
-        goto exit; 
-    } 
+    ctx = HITLS_New(config);
+    if (ctx == NULL) {
+        printf("HITLS_New failed.\n");
+        goto EXIT;
+    }
 
     ...
 }
@@ -629,22 +529,22 @@ The steps except for the following are the same as those described in "Certifica
 
 ```c
 ...
-config = HITLS_CFG_NewTLCPConfig(); 
-if (cfg == NULL) { 
-	printf("HITLS_CFG_NewTLCPConfig failed.\n"); 
-	return -1; 
-} 
+config = HITLS_CFG_NewTLCPConfig();
+if (cfg == NULL) {
+    printf("HITLS_CFG_NewTLCPConfig failed.\n");
+    return -1;
+}
 
 uint16_t cipherSuite = HITLS_ECC_SM4_CBC_SM3;
 // Configure the algorithm suite.
 if (HITLS_CFG_SetCipherSuites(config, &cipherSuite, 1) != HITLS_SUCCESS) {
-	printf("HITLS_CFG_SetCipherSuites err\n");
-	return -1;
+    printf("HITLS_CFG_SetCipherSuites err\n");
+    return -1;
 }
 
-if (HITLS_CFG_SetClientVerifySupport(config, ture) != HITLS_SUCCESS) {
-	printf("HITLS_CFG_SetClientVerifySupport err\n");
-	return -1;
+if (HITLS_CFG_SetClientVerifySupport(config, true) != HITLS_SUCCESS) {
+    printf("HITLS_CFG_SetClientVerifySupport err\n");
+    return -1;
 }
 
 /* Load certificates. This capability needs to be implemented by users. */
@@ -682,31 +582,32 @@ The security renegotiation procedure is as follows:
 
 ```c
 /* Exchange data at the application layer. */
-const uint8_t sndBuf[] = "Hi, this is client\n"; 
-ret = HITLS_Write(ctx, sndBuf, sizeof(sndBuf)); 
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Write error:error code:%d\n", ret); 
-	goto exit; 
-} 
-uint8_t readBuf[HTTP_BUF_MAXLEN + 1] = {0}; 
-uint32_t readLen = 0; 
-ret = HITLS_Read(ctx, readBuf, HTTP_BUF_MAXLEN, &readLen); 
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Read failed, ret = 0x%x.\n", ret); 
-	goto exit; 
+const uint8_t sndBuf[] = "Hi, this is client\n";
+uint32_t writeLen = 0;
+ret = HITLS_Write(ctx, sndBuf, sizeof(sndBuf), &writeLen);
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Write error:error code:%d\n", ret);
+    goto EXIT;
+}
+uint8_t readBuf[HTTP_BUF_MAXLEN + 1] = {0};
+uint32_t readLen = 0;
+ret = HITLS_Read(ctx, readBuf, HTTP_BUF_MAXLEN, &readLen);
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Read failed, ret = 0x%x.\n", ret);
+    goto EXIT;
 }
 /* The client enters the renegotiation state. */
 ret = HITLS_Renegotiate(ctx);
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Renegotiate error:error code:%d\n", ret); 
-	goto exit; 
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Renegotiate error:error code:%d\n", ret);
+    goto EXIT;
 }
 /* The client initiates a handshake, and the server processes the handshake through the `HITLS_Read` interface. */
-ret = HITLS_Connect(ctx); 
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Connect failed, ret = 0x%x.\n", ret); 
-	goto exit; 
-} 
+ret = HITLS_Connect(ctx);
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Connect failed, ret = 0x%x.\n", ret);
+    goto EXIT;
+}
 /* The renegotiation is complete, and the data exchange at the application layer proceeds. */
 ```
 
@@ -714,30 +615,31 @@ if (ret != HITLS_SUCCESS) {
 
 ```c
 /* Exchange data at the application layer. */
-uint8_t readBuf[HTTP_BUF_MAXLEN + 1] = {0}; 
-uint32_t readLen = 0; 
-ret = HITLS_Read(ctx, readBuf, HTTP_BUF_MAXLEN, &readLen); 
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Read failed, ret = 0x%x.\n", ret); 
-	goto exit; 
+uint8_t readBuf[HTTP_BUF_MAXLEN + 1] = {0};
+uint32_t readLen = 0;
+ret = HITLS_Read(ctx, readBuf, HTTP_BUF_MAXLEN, &readLen);
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Read failed, ret = 0x%x.\n", ret);
+    goto EXIT;
 }
-const uint8_t sndBuf[] = "Hi, this is server\n"; 
-ret = HITLS_Write(ctx, sndBuf, sizeof(sndBuf)); 
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Write error:error code:%d\n", ret); 
-	goto exit; 
-} 
+const uint8_t sndBuf[] = "Hi, this is server\n";
+uint32_t writeLen = 0;
+ret = HITLS_Write(ctx, sndBuf, sizeof(sndBuf), &writeLen);
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Write error:error code:%d\n", ret);
+    goto EXIT;
+}
 /* The server enters the renegotiation state. */
 ret = HITLS_Renegotiate(ctx);
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Renegotiate error:error code:%d\n", ret); 
-	goto exit; 
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Renegotiate error:error code:%d\n", ret);
+    goto EXIT;
 }
 /* The server initiates a handshake, and the client processes the handshake through the `HITLS_Read` interface. */
-ret = HITLS_Accept(ctx); 
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Accept failed, ret = 0x%x.\n", ret); 
-	goto exit; 
+ret = HITLS_Accept(ctx);
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Accept failed, ret = 0x%x.\n", ret);
+    goto EXIT;
 }
 /* The renegotiation is complete, and the data exchange at the application layer proceeds. */
 ```
@@ -764,24 +666,25 @@ HITLS_UPDATE_REQUESTED = 1, // The peer must reply to the `KeyUpdate` message.
 
 ```c
 /* Exchange data at the application layer. */
-uint8_t readBuf[HTTP_BUF_MAXLEN + 1] = {0}; 
-uint32_t readLen = 0; 
-ret = HITLS_Read(ctx, readBuf, HTTP_BUF_MAXLEN, &readLen); 
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Read failed, ret = 0x%x.\n", ret); 
-	goto exit; 
+uint8_t readBuf[HTTP_BUF_MAXLEN + 1] = {0};
+uint32_t readLen = 0;
+ret = HITLS_Read(ctx, readBuf, HTTP_BUF_MAXLEN, &readLen);
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Read failed, ret = 0x%x.\n", ret);
+    goto EXIT;
 }
-const uint8_t sndBuf[] = "Hi, this is server\n"; 
-ret = HITLS_Write(ctx, sndBuf, sizeof(sndBuf)); 
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Write error:error code:%d\n", ret); 
-	goto exit; 
-} 
+const uint8_t sndBuf[] = "Hi, this is server\n";
+uint32_t writeLen = 0;
+ret = HITLS_Write(ctx, sndBuf, sizeof(sndBuf), &writeLen);
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Write error:error code:%d\n", ret);
+    goto EXIT;
+}
 /* The client initiates a `KeyUpdate` message that does not require replies from the peer. The peer processes the message through the `HITLS_Read` interface. */
 ret = HITLS_KeyUpdate(ctx, HITLS_UPDATE_NOT_REQUESTED);
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_KeyUpdate error:error code:%d\n", ret); 
-	goto exit; 
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_KeyUpdate error:error code:%d\n", ret);
+    goto EXIT;
 }
 /* The key update process is complete. */
 ```
@@ -790,30 +693,31 @@ if (ret != HITLS_SUCCESS) {
 
 ```c
 /* Exchange data at the application layer. */
-uint8_t readBuf[HTTP_BUF_MAXLEN + 1] = {0}; 
-uint32_t readLen = 0; 
-ret = HITLS_Read(ctx, readBuf, HTTP_BUF_MAXLEN, &readLen); 
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Read failed, ret = 0x%x.\n", ret); 
-	goto exit; 
+uint8_t readBuf[HTTP_BUF_MAXLEN + 1] = {0};
+uint32_t readLen = 0;
+ret = HITLS_Read(ctx, readBuf, HTTP_BUF_MAXLEN, &readLen);
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Read failed, ret = 0x%x.\n", ret);
+    goto EXIT;
 }
-const uint8_t sndBuf[] = "Hi, this is server\n"; 
-ret = HITLS_Write(ctx, sndBuf, sizeof(sndBuf)); 
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Write error:error code:%d\n", ret); 
-	goto exit; 
-} 
+const uint8_t sndBuf[] = "Hi, this is server\n";
+uint32_t writeLen = 0;
+ret = HITLS_Write(ctx, sndBuf, sizeof(sndBuf), &writeLen);
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Write error:error code:%d\n", ret);
+    goto EXIT;
+}
 /* The server initiates a `KeyUpdate` message that requires replies from the peer. The peer processes the message through the `HITLS_Read` interface and returns replies to the `KeyUpdate` message. */
 ret = HITLS_KeyUpdate(ctx, HITLS_UPDATE_REQUESTED);
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_KeyUpdate error:error code:%d\n", ret); 
-	goto exit; 
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_KeyUpdate error:error code:%d\n", ret);
+    goto EXIT;
 }
 /* The `HITLS_Read` interface receives the peer's replies to the `KeyUpdate` message. */
-ret = HITLS_Read(ctx, readBuf, HTTP_BUF_MAXLEN, &readLen); 
-if (ret != HITLS_SUCCESS) { 
-	printf("HITLS_Read failed, ret = 0x%x.\n", ret); 
-	goto exit; 
+ret = HITLS_Read(ctx, readBuf, HTTP_BUF_MAXLEN, &readLen);
+if (ret != HITLS_SUCCESS) {
+    printf("HITLS_Read failed, ret = 0x%x.\n", ret);
+    goto EXIT;
 }
 /* The key update process is complete. */
 ```

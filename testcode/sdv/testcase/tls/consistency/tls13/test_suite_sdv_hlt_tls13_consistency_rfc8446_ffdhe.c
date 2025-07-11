@@ -141,7 +141,7 @@ static void Test_FFDHE_Key_ERROR(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len,
 
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
 
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -169,7 +169,7 @@ static void Test_FFDHE_Key_Client_DecodeError(HITLS_Ctx *ctx, uint8_t *data, uin
             frameMsg.body.hsMsg.body.clientHello.keyshares.exKeyShares.data->keyExchangeLen.data, 8, 10);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
 
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -206,7 +206,7 @@ static void Test_FFDHE_KeyLen_LessThenStandard(HITLS_Ctx *ctx, uint8_t *data, ui
 
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
 
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -243,7 +243,7 @@ static void Test_FFDHE_KeyLen_MoreThenStandard(HITLS_Ctx *ctx, uint8_t *data, ui
 
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
 
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -270,7 +270,7 @@ static void Test_FFDHE_KeyLen_Error(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len
 
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
 
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -287,13 +287,13 @@ void UT_TLS13_RFC8446_FFDHE_TC001()
     Process *localProcess = NULL;
     Process *remoteProcess = NULL;
     HLT_FD sockFd = {0};
+    int32_t serverConfigId = 0;
 
     localProcess = HLT_InitLocalProcess(HITLS);
     ASSERT_TRUE(localProcess != NULL);
     remoteProcess = HLT_CreateRemoteProcess(HITLS);
     ASSERT_TRUE(remoteProcess != NULL);
 
-    int32_t serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
     void *clientConfig = HLT_TlsNewCtx(version);
     ASSERT_TRUE(clientConfig != NULL);
 
@@ -303,6 +303,11 @@ void UT_TLS13_RFC8446_FFDHE_TC001()
     HLT_SetGroups(clientCtxConfig, "HITLS_FF_DHE_4096");
 
     HLT_Ctx_Config *serverCtxConfig = HLT_NewCtxConfig(NULL, "SERVER");
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    serverConfigId = HLT_RpcProviderTlsNewCtx(remoteProcess, version, false, NULL, NULL, NULL, 0, NULL);
+#else
+    serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
+#endif
     serverCtxConfig->isSupportClientVerify = true;
     serverCtxConfig->isSupportPostHandshakeAuth = true;
     serverCtxConfig->securitylevel = 0;
@@ -345,7 +350,7 @@ void UT_TLS13_RFC8446_FFDHE_TC001()
     HLT_RpcTlsClose(remoteProcess, serverSslId);
     HLT_RpcCloseFd(remoteProcess, sockFd.peerFd, remoteProcess->connType);
     HLT_CloseFd(sockFd.srcFd, localProcess->connType);
-exit:
+EXIT:
     HLT_FreeAllProcess();
 }
 /* END_CASE */
@@ -397,7 +402,8 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC001(int group)
     ASSERT_EQ(client->ssl->negotiatedInfo.negotiatedGroup, group);
 
     uint8_t data[] = "Hello World";
-    ASSERT_TRUE(HITLS_Write(client->ssl, data, strlen("Hello World")) == HITLS_SUCCESS);
+    uint32_t writeLen;
+    ASSERT_TRUE(HITLS_Write(client->ssl, data, strlen("Hello World"), &writeLen) == HITLS_SUCCESS);
     ASSERT_TRUE(FRAME_TrasferMsgBetweenLink(client, server) == HITLS_SUCCESS);
 
     uint8_t readBuf[MAX_BUF_SIZE] = {0};
@@ -405,7 +411,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC001(int group)
     ASSERT_TRUE(HITLS_Read(server->ssl, readBuf, MAX_BUF_SIZE, &readLen) == HITLS_SUCCESS);
     ASSERT_TRUE(readLen == strlen("Hello World"));
     ASSERT_TRUE(memcmp("Hello World", readBuf, readLen) == 0);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(c_config);
     HITLS_CFG_FreeConfig(s_config);
     FRAME_FreeLink(client);
@@ -467,7 +473,8 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC002(int group)
     ASSERT_EQ(client->ssl->negotiatedInfo.tls13BasicKeyExMode , TLS13_KE_MODE_PSK_WITH_DHE);
 
     uint8_t data[] = "Hello World";
-    ASSERT_TRUE(HITLS_Write(client->ssl, data, strlen("Hello World")) == HITLS_SUCCESS);
+    uint32_t writeLen;
+    ASSERT_TRUE(HITLS_Write(client->ssl, data, strlen("Hello World"), &writeLen) == HITLS_SUCCESS);
     ASSERT_TRUE(FRAME_TrasferMsgBetweenLink(client, server) == HITLS_SUCCESS);
 
     uint8_t readBuf[MAX_BUF_SIZE] = {0};
@@ -475,7 +482,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC002(int group)
     ASSERT_TRUE(HITLS_Read(server->ssl, readBuf, MAX_BUF_SIZE, &readLen) == HITLS_SUCCESS);
     ASSERT_TRUE(readLen == strlen("Hello World"));
     ASSERT_TRUE(memcmp("Hello World", readBuf, readLen) == 0);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(c_config);
     HITLS_CFG_FreeConfig(s_config);
     FRAME_FreeLink(client);
@@ -539,7 +546,8 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC003(int group)
     ASSERT_EQ(client->ssl->negotiatedInfo.tls13BasicKeyExMode , TLS13_CERT_AUTH_WITH_DHE);
 
     uint8_t data[] = "Hello World";
-    ASSERT_TRUE(HITLS_Write(client->ssl, data, strlen("Hello World")) == HITLS_SUCCESS);
+    uint32_t writeLen;
+    ASSERT_TRUE(HITLS_Write(client->ssl, data, strlen("Hello World"), &writeLen) == HITLS_SUCCESS);
     ASSERT_TRUE(FRAME_TrasferMsgBetweenLink(client, server) == HITLS_SUCCESS);
 
     uint8_t readBuf[MAX_BUF_SIZE] = {0};
@@ -547,7 +555,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC003(int group)
     ASSERT_TRUE(HITLS_Read(server->ssl, readBuf, MAX_BUF_SIZE, &readLen) == HITLS_SUCCESS);
     ASSERT_TRUE(readLen == strlen("Hello World"));
     ASSERT_TRUE(memcmp("Hello World", readBuf, readLen) == 0);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(c_config);
     HITLS_CFG_FreeConfig(s_config);
     FRAME_FreeLink(client);
@@ -620,7 +628,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC004(int ClientType, int 
     clientRes = HLT_ProcessTlsConnect(localProcess, TLS1_3, clientConfig, NULL);
     ASSERT_TRUE(clientRes == NULL);
     ASSERT_EQ(HLT_GetTlsAcceptResult(serverRes), HITLS_MSG_HANDLE_ILLEGAL_SELECTED_GROUP);
-exit:
+EXIT:
     ClearWrapper();
     HLT_FreeAllProcess();
 }
@@ -692,7 +700,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC005(int ClientType, int 
     clientRes = HLT_ProcessTlsConnect(localProcess, TLS1_3, clientConfig, NULL);
     ASSERT_TRUE(clientRes == NULL);
     ASSERT_EQ(HLT_GetTlsAcceptResult(serverRes), HITLS_MSG_HANDLE_ILLEGAL_SELECTED_GROUP);
-exit:
+EXIT:
     ClearWrapper();
     HLT_FreeAllProcess();
 }
@@ -738,7 +746,6 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC006(int ClientType, int 
     ASSERT_TRUE(serverConfig != NULL);
     clientConfig = HLT_NewCtxConfig(NULL, "CLIENT");
     ASSERT_TRUE(clientConfig != NULL);
-
     // Configure the client and server to support FFDHE2048.
     GetStrGroup(ClientType, group, &clientgroup);
     GetStrGroup(ServerType, group, &servergroup);
@@ -763,7 +770,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC006(int ClientType, int 
     clientRes = HLT_ProcessTlsConnect(localProcess, TLS1_3, clientConfig, NULL);
     ASSERT_TRUE(clientRes == NULL);
     ASSERT_EQ(HLT_GetTlsAcceptResult(serverRes), HITLS_CRYPT_ERR_CALC_SHARED_KEY);
-exit:
+EXIT:
     ClearWrapper();
     HLT_FreeAllProcess();
 }
@@ -809,7 +816,6 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC007(int ClientType, int 
     ASSERT_TRUE(serverConfig != NULL);
     clientConfig = HLT_NewCtxConfig(NULL, "CLIENT");
     ASSERT_TRUE(clientConfig != NULL);
-
     // Configure the client and server to support the elliptic curve ffdhe2048.
     GetStrGroup(ClientType, group, &clientgroup);
     GetStrGroup(ServerType, group, &servergroup);
@@ -833,7 +839,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC007(int ClientType, int 
 
     clientRes = HLT_ProcessTlsConnect(localProcess, TLS1_3, clientConfig, NULL);
     ASSERT_TRUE(clientRes == NULL);
-exit:
+EXIT:
     ClearWrapper();
     HLT_FreeAllProcess();
 }
@@ -902,7 +908,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_DHE_GROUP_FUNC_TC008(int ClientType, int 
     clientRes = HLT_ProcessTlsConnect(localProcess, TLS1_3, clientConfig, NULL);
     ASSERT_TRUE(clientRes == NULL);
     ASSERT_EQ(HLT_GetTlsAcceptResult(serverRes), HITLS_PARSE_INVALID_MSG_LEN);
-exit:
+EXIT:
     ClearWrapper();
     HLT_FreeAllProcess();
 }

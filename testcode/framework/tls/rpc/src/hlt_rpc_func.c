@@ -57,6 +57,74 @@ static int WaitResult(CmdData *expectCmdData, int cmdIndex, const char *funcName
     return SUCCESS;
 }
 
+int HLT_RpcProviderTlsNewCtx(HLT_Process *peerProcess, TLS_VERSION tlsVersion, bool isClient, char *providerPath,
+    char (*providerNames)[MAX_PROVIDER_NAME_LEN], int32_t *providerLibFmts, int32_t providerCnt, char *attrName)
+{
+    int ret;
+    uint64_t cmdIndex;
+    Process *srcProcess = NULL;
+    CmdData expectCmdData = {0};
+    ControlChannelBuf dataBuf;
+    uint32_t offset = 0;
+
+    ASSERT_RETURN(peerProcess->remoteFlag == 1, "Only Remote Process Support Call HLT_RpcTlsNewCtx");
+
+    srcProcess = GetProcess();
+    pthread_mutex_lock(&g_cmdMutex);
+    ret = sprintf_s(dataBuf.data, sizeof(dataBuf.data),
+        "%llu|%s|%d|%d|",
+        g_cmdIndex, __FUNCTION__, tlsVersion, isClient);
+    ASSERT_RETURN(ret > 0, "sprintf_s Error");
+    offset += ret;
+    if (providerCnt == 0 || providerNames == NULL || providerLibFmts == NULL) {
+        ret = sprintf_s(dataBuf.data + offset, sizeof(dataBuf.data) - offset, "|");
+        ASSERT_RETURN(ret > 0, "sprintf_s Error");
+        offset += ret;
+    }
+
+    for (int i = 0; i < providerCnt - 1; i++) {
+        ret = sprintf_s(dataBuf.data + offset, sizeof(dataBuf.data) - offset, "%s,%d:", providerNames[i],
+            providerLibFmts[i]);
+        ASSERT_RETURN(ret > 0, "sprintf_s Error");
+        offset += ret;
+    }
+    if (providerCnt >= 1) {
+        ret = sprintf_s(dataBuf.data + offset, sizeof(dataBuf.data) - offset, "%s,%d|", providerNames[providerCnt - 1],
+            providerLibFmts[providerCnt - 1]);
+        ASSERT_RETURN(ret > 0, "sprintf_s Error");
+        offset += ret;
+    }
+    if (attrName != NULL && strlen(attrName) > 0) {
+        ret = sprintf_s(dataBuf.data + offset, sizeof(dataBuf.data) - offset, "%s|", attrName);
+    } else {
+        ret = sprintf_s(dataBuf.data + offset, sizeof(dataBuf.data) - offset, "|");
+    }
+    ASSERT_RETURN(ret > 0, "sprintf_s Error");
+    offset += ret;
+    if (providerPath != NULL && strlen(providerPath) > 0) {
+        ret = sprintf_s(dataBuf.data + offset, sizeof(dataBuf.data) - offset, "%s|", providerPath);
+    } else {
+        ret = sprintf_s(dataBuf.data + offset, sizeof(dataBuf.data) - offset, "|");
+    }
+    ASSERT_RETURN(ret > 0, "sprintf_s Error");
+    offset += ret;
+
+    dataBuf.dataLen = strlen(dataBuf.data);
+    cmdIndex = g_cmdIndex;
+    g_cmdIndex++;
+    pthread_mutex_unlock(&g_cmdMutex);
+
+    ASSERT_RETURN(ret > 0, "sprintf_s Error");
+
+    ret = ControlChannelWrite(srcProcess->controlChannelFd, peerProcess->srcDomainPath, &dataBuf);
+    ASSERT_RETURN(ret == SUCCESS, "ControlChannelWrite Error");
+
+    ret = WaitResult(&expectCmdData, cmdIndex, __FUNCTION__);
+    ASSERT_RETURN(ret == SUCCESS, "WaitResult Error");
+
+    return atoi(expectCmdData.paras[0]);
+}
+
 int HLT_RpcTlsNewCtx(HLT_Process *peerProcess, TLS_VERSION tlsVersion, bool isClient)
 {
     int ret;
@@ -65,7 +133,7 @@ int HLT_RpcTlsNewCtx(HLT_Process *peerProcess, TLS_VERSION tlsVersion, bool isCl
     CmdData expectCmdData = {0};
     ControlChannelBuf dataBuf;
 
-    ASSERT_RETURN(peerProcess->remoteFlag ==  1, "Only Remote Process Support Call HLT_RpcTlsNewCtx");
+    ASSERT_RETURN(peerProcess->remoteFlag == 1, "Only Remote Process Support Call HLT_RpcTlsNewCtx");
 
     srcProcess = GetProcess();
     pthread_mutex_lock(&g_cmdMutex);
@@ -107,9 +175,11 @@ int HLT_RpcTlsSetCtx(HLT_Process *peerProcess, int ctxId, HLT_Ctx_Config *config
     "%s|%s|%s|%d|"
     "%d|%s|%d|%s|"
     "%s|%s|%s|%s|"
-    "%s|%d|%d|%s|"
+    "%s|%d|%d|"
     "%u|%d|%d|"
-    "%d|%d|",
+    "%d|%d|%d|"
+    "%d|%u|%d|%d|"
+    "%u|",
     g_cmdIndex, __FUNCTION__, ctxId,
     config->minVersion, config->maxVersion, config->cipherSuites, config->tls13CipherSuites,
     config->pointFormats, config->groups, config->signAlgorithms, config->isSupportRenegotiation,
@@ -118,9 +188,11 @@ int HLT_RpcTlsSetCtx(HLT_Process *peerProcess, int ctxId, HLT_Ctx_Config *config
     config->signCert, config->signPrivKey, config->psk, config->isSupportSessionTicket,
     config->setSessionCache, config->ticketKeyCb, config->isFlightTransmitEnable, config->serverName,
     config->sniDealCb, config->sniArg, config->alpnList, config->alpnSelectCb,
-    config->alpnUserData, config->securitylevel, config->isSupportDhAuto, config->noSecRenegotiationCb,
+    config->alpnUserData, config->securitylevel, config->isSupportDhAuto,
     config->keyExchMode, config->SupportType, config->isSupportPostHandshakeAuth,
-    config->needCheckKeyUsage, config->isSupportVerifyNone);
+    config->readAhead, config->needCheckKeyUsage, config->isSupportVerifyNone,
+    config->allowClientRenegotiate, config->emptyRecordsNum, config->allowLegacyRenegotiate, config->isEncryptThenMac,
+    config->modeSupport);
     dataBuf.dataLen = strlen(dataBuf.data);
     cmdIndex = g_cmdIndex;
     g_cmdIndex++;

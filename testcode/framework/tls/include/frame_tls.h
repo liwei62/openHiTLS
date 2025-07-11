@@ -92,6 +92,30 @@ int32_t FRAME_CreateConnection(FRAME_LinkObj *client, FRAME_LinkObj *server, boo
 
 /**
  * @brief   Simulate renegotiation
+ * @attention Internally invokes HITLS_Write and HITLS_Read to perform renegotiation.
+ *            Ensure that linkA is the initiator of the renegotiation request and
+ *            linkB is the receiver of the renegotiation request
+ *
+ * @param   server [IN] Initiator of the renegotiation request
+ * @param   client [IN] Recipient of the renegotiation request
+ *
+ * @return  If the operation is successful, HITLS_SUCCESS is returned
+ */
+int32_t FRAME_CreateRenegotiationServer(FRAME_LinkObj *server, FRAME_LinkObj *client);
+
+/*
+* @ingroup Simulate connection establishment or an SSL connection in a certain state.
+*          For example, if the value of state is TRY_RECV_SERVER_HELLO,
+*          the client is ready to receive the SERVER Hello message,
+*          and the server connection is SERVER_HELLO has just been sent.
+*
+*
+* @return If the operation is successful, HITLS_SUCCESS is returned
+*/
+int32_t FRAME_CreateRenegotiationState(FRAME_LinkObj *client, FRAME_LinkObj *server, bool isClient, HITLS_HandshakeState state);
+
+/**
+ * @brief   Simulate renegotiation
 
  * @attention Internally invokes HITLS_Write and HITLS_Read to perform renegotiation.
  *            Ensure that linkA is the initiator of the renegotiation request and

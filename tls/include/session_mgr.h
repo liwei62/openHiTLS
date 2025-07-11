@@ -18,16 +18,18 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "hitls_build.h"
 #include "hitls.h"
 #include "tls.h"
 #include "session.h"
+#include "tls_config.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* Application */
-TLS_SessionMgr *SESSMGR_New(void);
+TLS_SessionMgr *SESSMGR_New(HITLS_Lib_Ctx *libCtx);
 
 /* Copy the number of references and increase the number of references by 1 */
 TLS_SessionMgr *SESSMGR_Dup(TLS_SessionMgr *mgr);
@@ -114,7 +116,7 @@ int32_t SESSMGR_SetTicketKey(TLS_SessionMgr *mgr, const uint8_t *key, uint32_t k
  * @retval  HITLS_SUCCESS
  * @retval  For other error codes, see hitls_error.h
  */
-int32_t SESSMGR_EncryptSessionTicket(const TLS_SessionMgr *sessMgr, const HITLS_Session *sess, uint8_t **ticketBuf,
+int32_t SESSMGR_EncryptSessionTicket(TLS_Ctx *ctx, const TLS_SessionMgr *sessMgr, const HITLS_Session *sess, uint8_t **ticketBuf,
     uint32_t *ticketBufSize);
 
 /**
@@ -141,7 +143,8 @@ int32_t SESSMGR_EncryptSessionTicket(const TLS_SessionMgr *sessMgr, const HITLS_
  * @retval  HITLS_SUCCESS
  * @retval  For other error codes, see hitls_error.h
  */
-int32_t SESSMGR_DecryptSessionTicket(const TLS_SessionMgr *sessMgr, HITLS_Session **sess, const uint8_t *ticketBuf,
+int32_t SESSMGR_DecryptSessionTicket(HITLS_Lib_Ctx *libCtx, const char *attrName,
+    const TLS_SessionMgr *sessMgr, HITLS_Session **sess, const uint8_t *ticketBuf,
     uint32_t ticketBufSize, bool *isTicketExcept);
 
 #ifdef __cplusplus

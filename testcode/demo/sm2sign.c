@@ -23,6 +23,7 @@
 #include "crypt_algid.h"
 #include "crypt_errno.h"
 #include "crypt_eal_rand.h"
+#include "crypt_eal_init.h"
 
 void *StdMalloc(uint32_t len) {
     return malloc((size_t)len);
@@ -34,7 +35,6 @@ void PrintLastError(void) {
     BSL_ERR_GetLastErrorFileLine(&file, &line);// Obtain the name and number of lines of the error file.
     printf("failed at file %s at line %d\n", file, line);
 }
-BSL_SAL_MemCallback cb = {StdMalloc, free};
 
 int main(void)
 {
@@ -51,15 +51,21 @@ int main(void)
     BSL_ERR_Init(); // Initialize the error code module.
     /**
      * Before calling the algorithm APIs,
-     * call the BSL_SAL_RegMemCallback function to register the malloc and free functions.
+     * call the BSL_SAL_CallBack_Ctrl function to register the malloc and free functions.
      * Execute this step only once. If the memory allocation ability of Linux is available,
      * the two functions can be registered using Linux by default.
     */
-    BSL_SAL_RegMemCallback(&cb);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_MALLOC, StdMalloc);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_FREE, free);
+    ret = CRYPT_EAL_Init(CRYPT_EAL_INIT_CPU | CRYPT_EAL_INIT_PROVIDER);
+    if (ret != CRYPT_SUCCESS) {
+        printf("error code is %x\n", ret);
+        goto EXIT;
+    }
 
     ctx = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_SM2);
     if (ctx == NULL) {
-        goto exit;
+        goto EXIT;
     }
 
     // Set a user ID.
@@ -67,15 +73,15 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Initialize the random number.
-    ret = CRYPT_EAL_RandInit(CRYPT_RAND_SHA256, NULL, NULL, NULL, 0);
+    ret = CRYPT_EAL_ProviderRandInitCtx(NULL, CRYPT_RAND_SHA256, "provider=default", NULL, 0, NULL);
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Generate a key pair.
@@ -83,7 +89,7 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Sign.
@@ -91,7 +97,7 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Verify the signature.
@@ -99,12 +105,12 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     printf("pass \n");
 
-exit:
+EXIT:
     // Release the context memory.
     CRYPT_EAL_PkeyFreeCtx(ctx);
     CRYPT_EAL_RandDeinit();

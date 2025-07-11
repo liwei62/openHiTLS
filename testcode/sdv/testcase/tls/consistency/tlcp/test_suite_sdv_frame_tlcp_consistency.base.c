@@ -48,13 +48,17 @@
 #include "cert_callback.h"
 #include "change_cipher_spec.h"
 #include "common_func.h"
+#include "crypt_default.h"
+#include "stub_crypt.h"
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+#include "hitls_crypt.h"
+#endif
 
 #define PORT 11111
 #define TEMP_DATA_LEN 1024              /* Length of a single message. */
 #define MAX_BUF_LEN (20 * 1024)
 #define READ_BUF_SIZE (18 * 1024)       /* Maximum length of the read message buffer */
 #define ALERT_BODY_LEN 2u
-#define REC_TLS_RECORD_HEADER_LEN 5     /* recode header length */
 #define REC_CONN_SEQ_SIZE 8u            /* SN size */
 #define GetEpochSeq(epoch, seq) (((uint64_t)(epoch) << 48) | (seq))
 #define BUF_TOOLONG_LEN ((1 << 14) + 1)
@@ -111,7 +115,8 @@ int32_t RandBytes(uint8_t *randNum, uint32_t randLen)
 
 int32_t GenerateEccPremasterSecret(TLS_Ctx *ctx);
 
-int32_t RecordDecryptPrepare(TLS_Ctx *ctx, uint16_t version, uint64_t seq, REC_TextInput *cryptMsg);
+int32_t RecordDecryptPrepare(
+    TLS_Ctx *ctx, uint16_t version, REC_Type recordType, REC_TextInput *cryptMsg);
 int32_t RecConnDecrypt(
     TLS_Ctx *ctx, RecConnState *state, const REC_TextInput *cryptMsg, uint8_t *data, uint32_t *dataLen);
 
@@ -127,7 +132,11 @@ int32_t STUB_GenerateEccPremasterSecret(TLS_Ctx *ctx)
     BSL_Uint16ToByte(0x0505, premasterSecret);
     offset = sizeof(uint16_t);
     /* 46 bytes secure random number */
-    return SAL_CRYPT_Rand(&premasterSecret[offset], MASTER_SECRET_LEN - offset);
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    return HITLS_CRYPT_RandbytesEx(NULL, &premasterSecret[offset], MASTER_SECRET_LEN - offset);
+#else
+    return CRYPT_DEFAULT_RandomBytes(&premasterSecret[offset], MASTER_SECRET_LEN - offset);
+#endif
 }
 
 int32_t STUB_TlsRecordRead(TLS_Ctx *ctx, REC_Type recordType, uint8_t *data, uint32_t *readLen, uint32_t num)
@@ -137,16 +146,15 @@ int32_t STUB_TlsRecordRead(TLS_Ctx *ctx, REC_Type recordType, uint8_t *data, uin
     (void)readLen;
     RecConnState *state = ctx->recCtx->readStates.currentState;
     uint16_t version = ctx->negotiatedInfo.version;
-    uint64_t seq = state->seq;
     REC_TextInput encryptedMsg = {0};
-    ret = RecordDecryptPrepare(ctx, version, seq, &encryptedMsg);
+    ret = RecordDecryptPrepare(ctx, version, recordType, &encryptedMsg);
     if (ret != HITLS_SUCCESS) {
         return ret;
     }
     uint32_t dataLen = num;
     ASSERT_EQ(encryptedMsg.textLen, num);
     ret = RecConnDecrypt(ctx, state, &encryptedMsg, data, &dataLen);
-exit:
+EXIT:
     return ret;
 }
 
@@ -178,7 +186,7 @@ int32_t DefaultCfgStatusPark(HandshakeTestInfo *testInfo)
     if (testInfo->config == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
     testInfo->config->isSupportExtendMasterSecret = testInfo->isSupportExtendMasterSecret;
     testInfo->config->isSupportClientVerify = testInfo->isSupportClientVerify;
     testInfo->config->isSupportNoClientCert = testInfo->isSupportNoClientCert;
@@ -196,7 +204,7 @@ int32_t DefaultCfgStatusParkWithSuite(HandshakeTestInfo *testInfo)
     if (testInfo->config == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
     uint16_t cipherSuits[] = {HITLS_ECDHE_SM4_CBC_SM3};
     HITLS_CFG_SetCipherSuites(testInfo->config, cipherSuits, sizeof(cipherSuits) / sizeof(uint16_t));
 
@@ -214,4 +222,5 @@ void SetFrameType(FRAME_Type *frametype, uint16_t versionType, REC_Type recordTy
     frametype->recordType = recordType;
     frametype->handshakeType = handshakeType;
     frametype->keyExType = keyExType;
+    frametype->transportType = BSL_UIO_TCP;
 }

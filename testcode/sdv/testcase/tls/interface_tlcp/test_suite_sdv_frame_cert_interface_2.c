@@ -61,12 +61,13 @@
 #include "crypt_errno.h"
 #include "bsl_obj.h"
 #include "bsl_errno.h"
-#include "hitls_x509_adapt_local.h"
+#include "hitls_x509_adapt.h"
+#include "hitls_pki_x509.h"
 /* END_HEADER */
 
 #define BUF_MAX_SIZE 4096
 int32_t g_uiPort = 18886;
-HITLS_CERT_X509 *HiTLS_X509_LoadCertFile(const char *file);
+HITLS_CERT_X509 *HiTLS_X509_LoadCertFile(HITLS_Config *tlsCfg, const char *file);
 
 /* @
 * @test    UT_TLS_CERT_CM_SetVerifyStore_API_TC001
@@ -98,10 +99,10 @@ void UT_TLS_CERT_CM_SetVerifyStore_API_TC001(int version)
     ASSERT_EQ(HITLS_SetVerifyStore(ctx, verifyStore, true), HITLS_SUCCESS);
     ASSERT_TRUE(HITLS_GetVerifyStore(ctx) == verifyStore);
     ASSERT_TRUE(HITLS_GetVerifyStore(NULL) == NULL);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     HITLS_Free(ctx);
-    HITLS_X509_Adapt_StoreFree(verifyStore);
+    HITLS_X509_StoreCtxFree(verifyStore);
 }
 /* END_CASE */
 
@@ -137,7 +138,7 @@ void UT_TLS_CERT_CM_SetChainStore_API_TC001(int version)
     ASSERT_TRUE(HITLS_GetChainStore(ctx) == chainStore);
     ASSERT_TRUE(HITLS_GetChainStore(NULL) == NULL);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     HITLS_Free(ctx);
 }
@@ -174,7 +175,7 @@ void UT_TLS_CERT_CM_SetCertStore_API_TC001(int version)
     ASSERT_TRUE(HITLS_GetCertStore(ctx) == certStore);
     ASSERT_TRUE(HITLS_GetCertStore(NULL) == NULL);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     HITLS_Free(ctx);
 }
@@ -213,7 +214,7 @@ void UT_TLS_CERT_CM_SetDefaultPasswordCbUserdata_API_TC001(int version)
     ASSERT_TRUE(HITLS_GetCertStore(ctx) == certStore);
     ASSERT_TRUE(HITLS_GetCertStore(NULL) == NULL);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     HITLS_Free(ctx);
 }
@@ -239,8 +240,13 @@ void UT_TLS_CERT_SetGetAndCheckPrivateKey_API_TC001(int version, char *keyFile)
     HitlsInit();
     HITLS_Config *tlsConfig = NULL;
     HITLS_Ctx *ctx = NULL;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    HITLS_CERT_Key *privatekey = HITLS_X509_Adapt_ProviderKeyParse(tlsConfig, (const uint8_t *)keyFile, sizeof(keyFile),
+        TLS_PARSE_TYPE_FILE, "ASN1", NULL);
+#else
     HITLS_CERT_Key *privatekey = HITLS_X509_Adapt_KeyParse(tlsConfig, (const uint8_t *)keyFile, sizeof(keyFile),
         TLS_PARSE_TYPE_FILE, TLS_PARSE_FORMAT_ASN1);
+#endif
 
     tlsConfig = HitlsNewCtx(version);
     ASSERT_TRUE(tlsConfig != NULL);
@@ -254,7 +260,7 @@ void UT_TLS_CERT_SetGetAndCheckPrivateKey_API_TC001(int version, char *keyFile)
     ASSERT_TRUE(HITLS_GetPrivateKey(ctx) != NULL);
     ASSERT_TRUE(HITLS_CheckPrivateKey(NULL) == HITLS_NULL_INPUT);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     HITLS_Free(ctx);
 }
@@ -278,9 +284,9 @@ void UT_HITLS_CERT_ClearChainCerts_API_TC001(int version, char *certFile, char *
     HITLS_Config *tlsConfig = NULL;
     HITLS_Ctx *ctx = NULL;
 
-    HITLS_CERT_X509 *cert = HiTLS_X509_LoadCertFile(certFile);
+    HITLS_CERT_X509 *cert = HiTLS_X509_LoadCertFile(tlsConfig, certFile);
     ASSERT_TRUE(cert != NULL);
-    HITLS_CERT_X509 *addCert = HiTLS_X509_LoadCertFile(addCertFile);
+    HITLS_CERT_X509 *addCert = HiTLS_X509_LoadCertFile(tlsConfig, addCertFile);
     ASSERT_TRUE(addCert != NULL);
 
     tlsConfig = HitlsNewCtx(version);
@@ -296,7 +302,7 @@ void UT_HITLS_CERT_ClearChainCerts_API_TC001(int version, char *certFile, char *
     SAL_CERT_MgrCtxFree(ctx->config.tlsConfig.certMgrCtx);
     ctx->config.tlsConfig.certMgrCtx = NULL;
     ASSERT_EQ(HITLS_ClearChainCerts(ctx), HITLS_NULL_INPUT);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     HITLS_Free(ctx);
 }

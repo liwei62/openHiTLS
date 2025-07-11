@@ -12,7 +12,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-
+#include "hitls_build.h"
+#ifdef HITLS_TLS_HOST_CLIENT
 #include <string.h>
 #include "securec.h"
 #include "tls_binlog_id.h"
@@ -27,13 +28,17 @@
 #include "hitls.h"
 #include "hs_ctx.h"
 #include "hs_common.h"
+#include "hs_dtls_timer.h"
 #include "hs_verify.h"
 #include "pack.h"
 #include "send_process.h"
 #include "session_mgr.h"
 #include "bsl_bytes.h"
+#include "config_type.h"
 
 
+#if defined(HITLS_TLS_PROTO_TLS_BASIC) || defined(HITLS_TLS_PROTO_DTLS12)
+#ifdef HITLS_TLS_FEATURE_SESSION
 /* Check whether the resume function is supported */
 static int32_t ClientPrepareSession(TLS_Ctx *ctx)
 {
@@ -83,24 +88,33 @@ static int32_t ClientPrepareSession(TLS_Ctx *ctx)
 
     return HITLS_SUCCESS;
 }
-
+#endif /* HITLS_TLS_FEATURE_SESSION */
 static int32_t ClientChangeStateAfterSendClientHello(TLS_Ctx *ctx)
 {
-    if (ctx->session != NULL && IS_DTLS_VERSION(ctx->config.tlsConfig.maxVersion)) {
+#if defined(HITLS_TLS_PROTO_DTLS12) && defined(HITLS_BSL_UIO_UDP)
+    int32_t ret = HS_StartTimer(ctx);
+    if (ret != HITLS_SUCCESS) {
+        return ret;
+    }
+#endif
+#ifdef HITLS_TLS_FEATURE_SESSION
+    if (ctx->session != NULL && IS_SUPPORT_DATAGRAM(ctx->config.tlsConfig.originVersionMask)) {
         /* In the DTLS scenario, enable the receiving of CCS messages to prevent CCS message disorder during session
          * resumption */
         ctx->method.ctrlCCS(ctx, CCS_CMD_RECV_READY);
     }
+#endif /* HITLS_TLS_FEATURE_SESSION */
+    /* TLS and DTLS over SCTP do not need to process the hello_verify_request message */
     return HS_ChangeState(ctx, TRY_RECV_SERVER_HELLO);
 }
 
 int32_t ClientSendClientHelloProcess(TLS_Ctx *ctx)
 {
     int32_t ret = HITLS_SUCCESS;
-    /** Obtain client information */
+    /* Obtain client information */
     HS_Ctx *hsCtx = (HS_Ctx *)ctx->hsCtx;
 
-    /** Determine whether the message needs to be packed */
+    /* Determine whether the message needs to be packed */
     if (hsCtx->msgLen == 0) {
         /* If HelloVerifyRequest is used, the initial ClientHello and
            HelloVerifyRequest are not included in the calculation of the
@@ -108,6 +122,8 @@ int32_t ClientSendClientHelloProcess(TLS_Ctx *ctx)
            verify_data (for the Finished message). */
         ret = VERIFY_Init(hsCtx);
         if (ret != HITLS_SUCCESS) {
+            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID17107, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+                "VERIFY_Init fail", 0, 0, 0, 0);
             return ret;
         }
 
@@ -116,12 +132,13 @@ int32_t ClientSendClientHelloProcess(TLS_Ctx *ctx)
          * is not 0, the Hello Verify Request message is received.
          * 2. In the renegotiation state, the random and session need to be obtained again */
         if ((ctx->negotiatedInfo.cookieSize == 0) || (ctx->negotiatedInfo.isRenegotiation)) {
+#ifdef HITLS_TLS_FEATURE_SESSION
             ret = ClientPrepareSession(ctx);
             if (ret != HITLS_SUCCESS) {
                 return ret;
             }
-
-            ret = SAL_CRYPT_Rand(hsCtx->clientRandom, HS_RANDOM_SIZE);
+#endif /* HITLS_TLS_FEATURE_SESSION */
+            ret = SAL_CRYPT_Rand(LIBCTX_FROM_CTX(ctx), hsCtx->clientRandom, HS_RANDOM_SIZE);
             if (ret != HITLS_SUCCESS) {
                 BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15625, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
                     "generate random value fail.", 0, 0, 0, 0);
@@ -148,18 +165,77 @@ int32_t ClientSendClientHelloProcess(TLS_Ctx *ctx)
 
     return ClientChangeStateAfterSendClientHello(ctx);
 }
-static bool Tls13SelectGroup(TLS_Ctx *ctx, uint16_t *group)
+#endif /* HITLS_TLS_PROTO_TLS_BASIC || HITLS_TLS_PROTO_DTLS12 */
+
+#ifdef HITLS_TLS_PROTO_TLS13
+static bool Tls13SelectGroup(TLS_Ctx *ctx, uint16_t *firstGroup, uint16_t *secondGroup)
 {
     TLS_Config *tlsConfig = &ctx->config.tlsConfig;
     uint16_t version = (ctx->negotiatedInfo.version == 0) ?
         ctx->config.tlsConfig.maxVersion : ctx->negotiatedInfo.version;
+    bool isFirstGroupKem = false;
+    uint16_t group1 = HITLS_NAMED_GROUP_BUTT;
+    uint16_t group2 = HITLS_NAMED_GROUP_BUTT;
     for (uint32_t i = 0; i < tlsConfig->groupsSize; ++i) {
-        if (GroupConformToVersion(version, tlsConfig->groups[i])) {
-            *group = tlsConfig->groups[i];
-            return true;
+        const TLS_GroupInfo *groupInfo = ConfigGetGroupInfo(&ctx->config.tlsConfig, tlsConfig->groups[i]);
+        if (groupInfo == NULL) {
+            continue;
+        }
+        if (GroupConformToVersion(ctx, version, tlsConfig->groups[i])) {
+            if (group1 == HITLS_NAMED_GROUP_BUTT) {
+                group1 = tlsConfig->groups[i];
+                isFirstGroupKem = groupInfo->isKem;
+                continue;
+            /* Prepare one KEM and one KEX keyshare */
+            } else if (isFirstGroupKem != groupInfo->isKem) {
+                group2 = tlsConfig->groups[i];
+                break;
+            }
         }
     }
-    return false;
+    if (group1 == HITLS_NAMED_GROUP_BUTT) {
+        return false;
+    }
+    *firstGroup = group1;
+    *secondGroup = group2;
+    return true;
+}
+
+static int32_t Tls13ClientGenKeyPair(TLS_Ctx *ctx, KeyExchCtx *kxCtx, uint16_t firstGroup, uint16_t secondGroup)
+{
+    HITLS_ECParameters curveParams = {
+        .type = HITLS_EC_CURVE_TYPE_NAMED_CURVE,
+        .param.namedcurve = firstGroup,
+    };
+
+    // ecdhe and dhe groups can invoke the same interface to generate keys.
+    HITLS_CRYPT_Key *key = SAL_CRYPT_GenEcdhKeyPair(ctx, &curveParams);
+    if (key == NULL) {
+        BSL_ERR_PUSH_ERROR(HITLS_CRYPT_ERR_ENCODE_ECDH_KEY);
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15629, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+            "server generate key share key pair error.", 0, 0, 0, 0);
+        return HITLS_CRYPT_ERR_ENCODE_ECDH_KEY;
+    }
+    if (kxCtx->key != NULL) {
+        SAL_CRYPT_FreeEcdhKey(kxCtx->key);
+    }
+    kxCtx->key = key;
+    if (kxCtx->secondKey != NULL) {
+        SAL_CRYPT_FreeEcdhKey(kxCtx->secondKey);
+        kxCtx->secondKey = NULL;
+    }
+    if (secondGroup != HITLS_NAMED_GROUP_BUTT) {
+        curveParams.param.namedcurve = secondGroup;
+        HITLS_CRYPT_Key *secondKey = SAL_CRYPT_GenEcdhKeyPair(ctx, &curveParams);
+        if (secondKey == NULL) {
+            BSL_ERR_PUSH_ERROR(HITLS_CRYPT_ERR_ENCODE_ECDH_KEY);
+            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15629, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+                "server generate key share key pair error.", 0, 0, 0, 0);
+            return HITLS_CRYPT_ERR_ENCODE_ECDH_KEY;
+        }
+        kxCtx->secondKey = secondKey;
+    }
+    return HITLS_SUCCESS;
 }
 
 static int32_t Tls13ClientPrepareKeyShare(TLS_Ctx *ctx, uint32_t tls13BasicKeyExMode)
@@ -178,44 +254,31 @@ static int32_t Tls13ClientPrepareKeyShare(TLS_Ctx *ctx, uint32_t tls13BasicKeyEx
         return HITLS_INTERNAL_EXCEPTION;
     }
 
-    uint16_t selectGroup = tlsConfig->groups[0];
+    uint16_t firstGroup = HITLS_NAMED_GROUP_BUTT;
+    uint16_t secondGroup = HITLS_NAMED_GROUP_BUTT;
     /* The keyShare has passed the verification when receiving the HRR */
-    KeyShareParam *keyShare = &ctx->hsCtx->kxCtx->keyExchParam.share;
-    KeyExchCtx *kxCtx = ctx->hsCtx->kxCtx;
+    KeyShareParam *share = &ctx->hsCtx->kxCtx->keyExchParam.share;
     if (ctx->hsCtx->haveHrr) {
-        /** If the value of group is not updated in the hello retry request, the system directly returns */
-        if (selectGroup == keyShare->group) {
+        /* If the value of group is not updated in the hello retry request, the system directly returns */
+        if (share->group == ctx->negotiatedInfo.negotiatedGroup || 
+            share->secondGroup == ctx->negotiatedInfo.negotiatedGroup) {
             return HITLS_SUCCESS;
         }
 
-        /** If the value of group is updated, use the updated group */
-        selectGroup = keyShare->group;
+        /* If the value of group is updated, use the updated group */
+        firstGroup = ctx->negotiatedInfo.negotiatedGroup;
+        secondGroup = HITLS_NAMED_GROUP_BUTT;
     } else {
-        if (!Tls13SelectGroup(ctx, &selectGroup)) {
+        if (!Tls13SelectGroup(ctx, &firstGroup, &secondGroup)) {
+            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID17109, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+                "SelectGroup fail", 0, 0, 0, 0);
             return HITLS_MSG_HANDLE_ILLEGAL_SELECTED_GROUP;
         }
-        /** Send the client hello message for the first time and fill in the group in the key share extension */
-        keyShare->group = selectGroup;
+        /* Send the client hello message for the first time and fill in the group in the key share extension */
     }
-    HITLS_ECParameters curveParams = {
-        .type = HITLS_EC_CURVE_TYPE_NAMED_CURVE,
-        .param.namedcurve = selectGroup,
-    };
-    HITLS_CRYPT_Key *key = NULL;
-    // ecdhe and dhe groups can invoke the same interface to generate keys.
-    key = SAL_CRYPT_GenEcdhKeyPair(&curveParams);
-    if (key == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_CRYPT_ERR_ENCODE_ECDH_KEY);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15629, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "server generate key share key pair error.", 0, 0, 0, 0);
-        return HITLS_CRYPT_ERR_ENCODE_ECDH_KEY;
-    }
-    if (kxCtx->key != NULL) {
-        SAL_CRYPT_FreeEcdhKey(kxCtx->key);
-    }
-    kxCtx->key = key;
-
-    return HITLS_SUCCESS;
+    share->group = firstGroup;
+    share->secondGroup = secondGroup;
+    return Tls13ClientGenKeyPair(ctx, ctx->hsCtx->kxCtx, firstGroup, secondGroup);
 }
 
 static int32_t Tls13ClientPrepareSession(TLS_Ctx *ctx)
@@ -230,7 +293,7 @@ static int32_t Tls13ClientPrepareSession(TLS_Ctx *ctx)
             "session Id malloc fail.", 0, 0, 0, 0);
         return HITLS_MEMALLOC_FAIL;
     }
-    ret = SAL_CRYPT_Rand(hsCtx->sessionId, HITLS_SESSION_ID_MAX_SIZE);
+    ret = SAL_CRYPT_Rand(LIBCTX_FROM_CTX(ctx), hsCtx->sessionId, HITLS_SESSION_ID_MAX_SIZE);
     if (ret != HITLS_SUCCESS) {
         BSL_SAL_FREE(hsCtx->sessionId);
         BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15631, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
@@ -245,6 +308,7 @@ static int32_t Tls13ClientPrepareSession(TLS_Ctx *ctx)
 int32_t CreatePskSession(TLS_Ctx *ctx, uint8_t *id, uint32_t idLen, HITLS_Session **pskSession)
 {
     if (ctx == NULL || pskSession == NULL) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID17110, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN, "input null", 0, 0, 0, 0);
         return HITLS_NULL_INPUT;
     }
 
@@ -258,11 +322,14 @@ int32_t CreatePskSession(TLS_Ctx *ctx, uint8_t *id, uint32_t idLen, HITLS_Sessio
         return HITLS_SUCCESS;
     }
     if (pskLen > HS_PSK_MAX_LEN) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID17111, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN, "pskLen err", 0, 0, 0, 0);
+        memset_s(psk, HS_PSK_MAX_LEN, 0, HS_PSK_MAX_LEN);
         return HITLS_MSG_HANDLE_ILLEGAL_PSK_LEN;
     }
 
     HITLS_Session *sess = HITLS_SESS_New();
     if (sess == NULL) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID17112, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN, "sess new fail", 0, 0, 0, 0);
         memset_s(psk, HS_PSK_MAX_LEN, 0, HS_PSK_MAX_LEN);
         return HITLS_MEMALLOC_FAIL;
     }
@@ -288,9 +355,11 @@ static bool IsTls13SessionValid(HITLS_HashAlgo hashAlgo, HITLS_Session* session,
     (void)HITLS_SESS_GetCipherSuite(session, &cipherSuite); // only null input cause error
     int32_t ret = CFG_GetCipherSuiteInfo(cipherSuite, &cipherInfo);
     if (ret != HITLS_SUCCESS) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID17113, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+            "GetCipherSuiteInfo fail", 0, 0, 0, 0);
         return false;
     }
-    if (hashAlgo != HITLS_HASH_NULL) {
+    if (hashAlgo != HITLS_HASH_BUTT) {
         return (hashAlgo == cipherInfo.hashAlg);
     }
     if (tls13CipherSuites != NULL) {
@@ -309,15 +378,19 @@ static UserPskList *ConstructUserPsk(HITLS_Session *sessoin, const uint8_t *iden
     uint8_t curIndex)
 {
     if (identityLen > HS_PSK_IDENTITY_MAX_LEN || sessoin == NULL) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID17114, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+            "identityLen err or sessoin NULL", 0, 0, 0, 0);
         return NULL;
     }
     UserPskList *userPsk = BSL_SAL_Calloc(1, sizeof(UserPskList));
     if (userPsk == NULL) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID17115, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN, "Calloc fail", 0, 0, 0, 0);
         return NULL;
     }
     userPsk->pskSession = HITLS_SESS_Dup(sessoin);
     userPsk->identity = BSL_SAL_Calloc(1, identityLen);
     if (userPsk->identity == NULL) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID17116, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN, "Calloc fail", 0, 0, 0, 0);
         BSL_SAL_FREE(userPsk);
         return NULL;
     }
@@ -331,7 +404,7 @@ static int32_t Tls13ClientPreparePSK(TLS_Ctx *ctx)
 {
     int32_t ret = 0;
     HS_Ctx *hsCtx = ctx->hsCtx;
-    HITLS_HashAlgo hashAlgo = hsCtx->haveHrr ? ctx->negotiatedInfo.cipherSuiteInfo.hashAlg : HITLS_HASH_NULL;
+    HITLS_HashAlgo hashAlgo = hsCtx->haveHrr ? ctx->negotiatedInfo.cipherSuiteInfo.hashAlg : HITLS_HASH_BUTT;
     uint8_t identity[HS_PSK_IDENTITY_MAX_LEN + 1] = {0};
     const uint8_t *id = NULL;
     uint32_t idLen = 0;
@@ -352,6 +425,8 @@ static int32_t Tls13ClientPreparePSK(TLS_Ctx *ctx)
     if (ctx->config.tlsConfig.pskUseSessionCb != NULL) {
         ret = ctx->config.tlsConfig.pskUseSessionCb(ctx, hashAlgo, &id, &idLen, &pskSession);
         if (ret != HITLS_PSK_USE_SESSION_CB_SUCCESS) {
+            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID17117, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+                "pskUseSessionCb fail, ret %d", ret, 0, 0, 0);
             return HITLS_MSG_HANDLE_PSK_USE_SESSION_FAIL;
         }
     }
@@ -367,7 +442,7 @@ static int32_t Tls13ClientPreparePSK(TLS_Ctx *ctx)
     }
 
     if (pskSession != NULL && IsTls13SessionValid(hashAlgo, pskSession, ctx->config.tlsConfig.tls13CipherSuites,
-            ctx->config.tlsConfig.tls13cipherSuitesSize)) {
+                                                  ctx->config.tlsConfig.tls13cipherSuitesSize)) {
         userPsk = ConstructUserPsk(pskSession, id, idLen, index);
     }
     HITLS_SESS_Free(pskSession);
@@ -386,29 +461,27 @@ int32_t Tls13ClientHelloPrepare(TLS_Ctx *ctx)
 {
     int32_t ret = HITLS_SUCCESS;
     HS_Ctx *hsCtx = ctx->hsCtx;
-    /** After receiving the hello retry request message, the client needs to send the second clientHello. In this case,
+    /* After receiving the hello retry request message, the client needs to send the second clientHello. In this case,
      * the following initialization is not required */
     if (hsCtx->haveHrr == false) {
         ret = VERIFY_Init(hsCtx);
         if (ret != HITLS_SUCCESS) {
-            return ret;
+            return RETURN_ERROR_NUMBER_PROCESS(ret, BINLOG_ID17118, "VERIFY_Init fail");
         }
 
-        ret = SAL_CRYPT_Rand(hsCtx->clientRandom, HS_RANDOM_SIZE);
+        ret = SAL_CRYPT_Rand(LIBCTX_FROM_CTX(ctx), hsCtx->clientRandom, HS_RANDOM_SIZE);
         if (ret != HITLS_SUCCESS) {
-            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15632, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-                "generate random value fail.", 0, 0, 0, 0);
-            return ret;
+            return RETURN_ERROR_NUMBER_PROCESS(ret, BINLOG_ID15632, "generate random value fail");
         }
 
-        /** In section 4.1.2 of RFC8446, a random session ID is required in middlebox mode. In nomiddlebox mode, the
+        /* In section 4.1.2 of RFC8446, a random session ID is required in middlebox mode. In nomiddlebox mode, the
          * session ID is empty */
         ret = Tls13ClientPrepareSession(ctx);
         if (ret != HITLS_SUCCESS) {
             return ret;
         }
     } else {
-        /** If the middlebox is used, a CCS message must be sent before the second clientHello message is sent */
+        /* If the middlebox is used, a CCS message must be sent before the second clientHello message is sent */
         ret = ctx->method.sendCCS(ctx);
         if (ret != HITLS_SUCCESS) {
             return ret;
@@ -430,7 +503,7 @@ int32_t Tls13ClientHelloPrepare(TLS_Ctx *ctx)
         tls13BasicKeyExMode |= TLS13_CERT_AUTH_WITH_DHE;
     }
 
-    /** Prepare the key share extension. The keyshares in two clientHello messages are different. Therefore,
+    /* Prepare the key share extension. The keyshares in two clientHello messages are different. Therefore,
      * both the keyshares must be prepared */
     ret = Tls13ClientPrepareKeyShare(ctx, tls13BasicKeyExMode);
     if (ret != HITLS_SUCCESS) {
@@ -439,9 +512,8 @@ int32_t Tls13ClientHelloPrepare(TLS_Ctx *ctx)
     }
 
     if (tls13BasicKeyExMode == 0) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15463, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "tls config error: can not decide tls13BasicKeyExMode ", 0, 0, 0, 0);
-        return HITLS_CONFIG_INVALID_SET;
+        return RETURN_ERROR_NUMBER_PROCESS(HITLS_CONFIG_INVALID_SET, BINLOG_ID16140,
+            "tls config err: can not decide tls13BasicKeyExMode");
     }
     ctx->negotiatedInfo.tls13BasicKeyExMode = tls13BasicKeyExMode;
 
@@ -454,12 +526,12 @@ static uint32_t GetBindersOffset(const TLS_Ctx *ctx)
     PskInfo13 *pskInfo = &ctx->hsCtx->kxCtx->pskInfo13;
     uint32_t binderLen = 0;
     if (pskInfo->resumeSession != NULL) {
-        HITLS_HashAlgo hashAlg = HITLS_HASH_NULL;
+        HITLS_HashAlgo hashAlg = HITLS_HASH_BUTT;
         binderLen = HS_GetBinderLen(pskInfo->resumeSession, &hashAlg);  // Success guaranteed by the context
         ret += binderLen + sizeof(uint8_t);
     }
     if (pskInfo->userPskSess != NULL) {
-        HITLS_HashAlgo hashAlg = HITLS_HASH_NULL;
+        HITLS_HashAlgo hashAlg = HITLS_HASH_BUTT;
         binderLen = HS_GetBinderLen(pskInfo->userPskSess->pskSession, &hashAlg);  // Success guaranteed by the context
         ret += binderLen + sizeof(uint8_t);
     }
@@ -477,7 +549,7 @@ static int32_t PackClientPreSharedKeyBinders(const TLS_Ctx *ctx, uint8_t *buf, u
     uint32_t binderLen = 0;
     int32_t ret = HITLS_SUCCESS;
     if (pskInfo->resumeSession != NULL) {
-        HITLS_HashAlgo hashAlg = HITLS_HASH_NULL;
+        HITLS_HashAlgo hashAlg = HITLS_HASH_BUTT;
         binderLen = HS_GetBinderLen(pskInfo->resumeSession, &hashAlg);  // Success guaranteed by the context
         buf[offset] = binderLen;
         offset++;
@@ -495,8 +567,8 @@ static int32_t PackClientPreSharedKeyBinders(const TLS_Ctx *ctx, uint8_t *buf, u
     }
 
     if (pskInfo->userPskSess != NULL) {
+        HITLS_HashAlgo hashAlg = HITLS_HASH_BUTT;
         pskLen = HS_PSK_MAX_LEN;
-        HITLS_HashAlgo hashAlg = HITLS_HASH_NULL;
         binderLen = HS_GetBinderLen(pskInfo->userPskSess->pskSession, &hashAlg);  // context is guaranteed to succeed
         buf[offset] = (uint8_t)binderLen;
         offset++;
@@ -546,9 +618,11 @@ int32_t Tls13ClientSendClientHelloProcess(TLS_Ctx *ctx)
                 return ret;
             }
         }
+#ifdef HITLS_TLS_FEATURE_PHA
         if (hsCtx->extFlag.havePostHsAuth && ctx->phaState == PHA_NONE) {
             ctx->phaState = PHA_EXTENSION;
         }
+#endif /* HITLS_TLS_FEATURE_PHA */
     }
 
     if (!ctx->method.isRecvCCS(ctx)) {
@@ -566,3 +640,5 @@ int32_t Tls13ClientSendClientHelloProcess(TLS_Ctx *ctx)
 
     return HS_ChangeState(ctx, TRY_RECV_SERVER_HELLO);
 }
+#endif /* HITLS_TLS_PROTO_TLS13 */
+#endif /* HITLS_TLS_HOST_CLIENT */

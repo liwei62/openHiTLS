@@ -25,7 +25,10 @@
 #include "crypt_utils.h"
 #include "crypt_types.h"
 #include "crypt_scrypt.h"
-
+#include "eal_mac_local.h"
+#include "pbkdf2_local.h"
+#include "bsl_params.h"
+#include "crypt_params_key.h"
 
 #define SCRYPT_PR_MAX   ((1 << 30) - 1)
 
@@ -72,6 +75,19 @@ do { \
 } while (0)
 
 #define SCRYPT_ELEMENTSIZE 64
+
+struct CryptScryptCtx {
+    const EAL_MacMethod *macMeth;
+    const EAL_MdMethod *mdMeth;
+    PBKDF2_PRF pbkdf2Prf;
+    uint8_t *password;
+    uint32_t passLen;
+    uint8_t *salt;
+    uint32_t saltLen;
+    uint32_t n;
+    uint32_t r;
+    uint32_t p;
+};
 
 /* This function is implemented by referring to the RFC standard.
    For details, see section 3 in https://www.rfc-editor.org/rfc/rfc7914.txt */
@@ -233,9 +249,9 @@ static int32_t SCRYPT_CheckPointer(PBKDF2_PRF pbkdf2Prf, const uint8_t *key, uin
 }
 
 /* For details about this function, see section 6 in RFC7914. */
-int32_t CRYPT_SCRYPT(PBKDF2_PRF pbkdf2Prf, const EAL_MacMethod *macMeth, const EAL_MdMethod *mdMeth,
-    const uint8_t *key, uint32_t keyLen, const uint8_t *salt, uint32_t saltLen, uint32_t n,
-    uint32_t r, uint32_t p, uint8_t *out, uint32_t len)
+int32_t CRYPT_SCRYPT(PBKDF2_PRF pbkdf2Prf, const EAL_MacMethod *macMeth,  CRYPT_MAC_AlgId macId,
+    const EAL_MdMethod *mdMeth, const uint8_t *key, uint32_t keyLen, const uint8_t *salt,
+    uint32_t saltLen, uint32_t n, uint32_t r, uint32_t p, uint8_t *out, uint32_t len)
 {
     int32_t ret;
     // V in ROMix and BlockMix is allocated here, reducing memory application and release costs
@@ -268,18 +284,249 @@ int32_t CRYPT_SCRYPT(PBKDF2_PRF pbkdf2Prf, const EAL_MacMethod *macMeth, const E
     v = b + bLen;
     y = v + blockSize * n;
 
-    GOTO_ERR_IF(pbkdf2Prf(macMeth, mdMeth, key, keyLen, salt, saltLen, 1, b, bLen), ret);
+    GOTO_ERR_IF(pbkdf2Prf(macMeth, macId, mdMeth, key, keyLen, salt, saltLen, 1, b, bLen), ret);
 
     bi = b;
     for (uint32_t i = 0; i < p; i++, bi += blockSize) {
         SCRYPT_ROMix(bi, n, r, v, y);
     }
 
-    GOTO_ERR_IF(pbkdf2Prf(macMeth, mdMeth, key, keyLen, b, bLen, 1, out, len), ret);
+    GOTO_ERR_IF(pbkdf2Prf(macMeth, macId, mdMeth, key, keyLen, b, bLen, 1, out, len), ret);
 
 ERR:
     BSL_SAL_FREE(b);
 
     return ret;
 }
+
+int32_t CRYPT_SCRYPT_SetMacMethod(CRYPT_SCRYPT_Ctx *ctx)
+{
+    EAL_MacMethLookup method;
+    int32_t ret = EAL_MacFindMethod(CRYPT_MAC_HMAC_SHA256, &method);
+    if (ret != CRYPT_SUCCESS) {
+        BSL_ERR_PUSH_ERROR(CRYPT_EAL_ERR_METH_NULL_NUMBER);
+        return CRYPT_EAL_ERR_METH_NULL_NUMBER;
+    }
+    ctx->macMeth = method.macMethod;
+    ctx->mdMeth = method.md;
+    return CRYPT_SUCCESS;
+}
+
+int32_t CRYPT_SCRYPT_InitCtx(CRYPT_SCRYPT_Ctx *ctx)
+{
+    int32_t ret = CRYPT_SCRYPT_SetMacMethod(ctx);
+    if (ret != CRYPT_SUCCESS) {
+        BSL_ERR_PUSH_ERROR(ret);
+        return ret;
+    }
+    ctx->pbkdf2Prf = CRYPT_PBKDF2_HMAC;
+    return CRYPT_SUCCESS;
+}
+
+CRYPT_SCRYPT_Ctx* CRYPT_SCRYPT_NewCtx(void)
+{
+    CRYPT_SCRYPT_Ctx *ctx = BSL_SAL_Calloc(1, sizeof(CRYPT_SCRYPT_Ctx));
+    if (ctx == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
+        return NULL;
+    }
+    int32_t ret = CRYPT_SCRYPT_InitCtx(ctx);
+    if (ret != CRYPT_SUCCESS) {
+        BSL_ERR_PUSH_ERROR(ret);
+        BSL_SAL_FREE(ctx);
+        return NULL;
+    }
+    return ctx;
+}
+
+int32_t CRYPT_SCRYPT_SetPassWord(CRYPT_SCRYPT_Ctx *ctx, const uint8_t *password, uint32_t passLen)
+{
+    if (password == NULL && passLen > 0) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
+
+    BSL_SAL_ClearFree(ctx->password, ctx->passLen);
+
+    ctx->password = BSL_SAL_Dump(password, passLen);
+    if (ctx->password == NULL && passLen > 0) {
+        BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
+        return CRYPT_MEM_ALLOC_FAIL;
+    }
+    ctx->passLen = passLen;
+    return CRYPT_SUCCESS;
+}
+
+int32_t CRYPT_SCRYPT_SetSalt(CRYPT_SCRYPT_Ctx *ctx, const uint8_t *salt, uint32_t saltLen)
+{
+    if (salt == NULL && saltLen > 0) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
+
+    BSL_SAL_FREE(ctx->salt);
+
+    ctx->salt = BSL_SAL_Dump(salt, saltLen);
+    if (ctx->salt == NULL && saltLen > 0) {
+        BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
+        return CRYPT_MEM_ALLOC_FAIL;
+    }
+    ctx->saltLen = saltLen;
+    return CRYPT_SUCCESS;
+}
+
+int32_t CRYPT_SCRYPT_SetN(CRYPT_SCRYPT_Ctx *ctx, const uint32_t n)
+{
+    if (n <= 1 || (n & (n - 1)) != 0) {
+        BSL_ERR_PUSH_ERROR(CRYPT_SCRYPT_PARAM_ERROR);
+        return CRYPT_SCRYPT_PARAM_ERROR;
+    }
+    ctx->n = n;
+    return CRYPT_SUCCESS;
+}
+
+int32_t CRYPT_SCRYPT_SetR(CRYPT_SCRYPT_Ctx *ctx, const uint32_t r)
+{
+    if (r == 0) {
+        BSL_ERR_PUSH_ERROR(CRYPT_SCRYPT_PARAM_ERROR);
+        return CRYPT_SCRYPT_PARAM_ERROR;
+    }
+    ctx->r = r;
+    return CRYPT_SUCCESS;
+}
+
+int32_t CRYPT_SCRYPT_SetP(CRYPT_SCRYPT_Ctx *ctx, const uint32_t p)
+{
+    if (p == 0) {
+        BSL_ERR_PUSH_ERROR(CRYPT_SCRYPT_PARAM_ERROR);
+        return CRYPT_SCRYPT_PARAM_ERROR;
+    }
+    ctx->p = p;
+    return CRYPT_SUCCESS;
+}
+
+int32_t CRYPT_SCRYPT_SetParam(CRYPT_SCRYPT_Ctx *ctx, const BSL_Param *param)
+{
+    uint32_t val = 0;
+    uint32_t len = 0;
+    const BSL_Param *temp = NULL;
+    int32_t ret = CRYPT_SCRYPT_PARAM_ERROR;
+    if (ctx == NULL || param == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
+    if ((temp = BSL_PARAM_FindConstParam(param, CRYPT_PARAM_KDF_PASSWORD)) != NULL) {
+        GOTO_ERR_IF(CRYPT_SCRYPT_SetPassWord(ctx, temp->value, temp->valueLen), ret);
+    }
+    if ((temp = BSL_PARAM_FindConstParam(param, CRYPT_PARAM_KDF_SALT)) != NULL) {
+        GOTO_ERR_IF(CRYPT_SCRYPT_SetSalt(ctx, temp->value, temp->valueLen), ret);
+    }
+    if ((temp = BSL_PARAM_FindConstParam(param, CRYPT_PARAM_KDF_N)) != NULL) {
+        len = sizeof(val);
+        GOTO_ERR_IF(BSL_PARAM_GetValue(temp, CRYPT_PARAM_KDF_N,
+            BSL_PARAM_TYPE_UINT32, &val, &len), ret);
+        GOTO_ERR_IF(CRYPT_SCRYPT_SetN(ctx, val), ret);
+    }
+    if ((temp = BSL_PARAM_FindConstParam(param, CRYPT_PARAM_KDF_R)) != NULL) {
+        len = sizeof(val);
+        GOTO_ERR_IF(BSL_PARAM_GetValue(temp, CRYPT_PARAM_KDF_R,
+            BSL_PARAM_TYPE_UINT32, &val, &len), ret);
+        GOTO_ERR_IF(CRYPT_SCRYPT_SetR(ctx, val), ret);
+    }
+    if ((temp = BSL_PARAM_FindConstParam(param, CRYPT_PARAM_KDF_P)) != NULL) {
+        len = sizeof(val);
+        GOTO_ERR_IF(BSL_PARAM_GetValue(temp, CRYPT_PARAM_KDF_P,
+            BSL_PARAM_TYPE_UINT32, &val, &len), ret);
+        GOTO_ERR_IF(CRYPT_SCRYPT_SetP(ctx, val), ret);
+    }
+ERR:
+    return ret;
+}
+
+int32_t CRYPT_SCRYPT_Derive(CRYPT_SCRYPT_Ctx *ctx, uint8_t *out, uint32_t len)
+{
+    int32_t ret;
+
+    uint8_t *b = NULL, *v = NULL, *bi = NULL, *y = NULL;
+    uint32_t bLen, blockSize, sumLen;
+
+    const EAL_MacMethod *macMeth = ctx->macMeth;
+    const EAL_MdMethod *mdMeth = ctx->mdMeth;
+    PBKDF2_PRF pbkdf2Prf = ctx->pbkdf2Prf;
+    const uint8_t *password = ctx->password;
+    uint32_t passLen = ctx->passLen;
+    const uint8_t *salt = ctx->salt;
+    uint32_t saltLen = ctx->saltLen;
+    uint32_t n = ctx->n;
+    uint32_t r = ctx->r;
+    uint32_t p = ctx->p;
+
+    if ((ret = SCRYPT_CheckParam(n, r, p, out, len)) != CRYPT_SUCCESS) {
+        BSL_ERR_PUSH_ERROR(ret);
+        return ret;
+    }
+    if ((ret = SCRYPT_CheckPointer(pbkdf2Prf, password, passLen, salt, saltLen)) != CRYPT_SUCCESS) {
+        BSL_ERR_PUSH_ERROR(ret);
+        return ret;
+    }
+
+    blockSize = r << 7;
+    bLen = blockSize * p;
+
+    sumLen = bLen + blockSize * n + blockSize;
+    if (sumLen < bLen) {
+        BSL_ERR_PUSH_ERROR(CRYPT_SCRYPT_DATA_TOO_MAX);
+        return CRYPT_SCRYPT_DATA_TOO_MAX;
+    }
+    b = BSL_SAL_Malloc(sumLen);
+    if (b == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
+        return CRYPT_MEM_ALLOC_FAIL;
+    }
+
+    v = b + bLen;
+    y = v + blockSize * ctx->n;
+
+    GOTO_ERR_IF(pbkdf2Prf(macMeth, CRYPT_MAC_HMAC_SHA256, mdMeth, password, passLen, salt, saltLen, 1, b, bLen), ret);
+
+    bi = b;
+    for (uint32_t i = 0; i < p; i++, bi += blockSize) {
+        SCRYPT_ROMix(bi, n, r, v, y);
+    }
+
+    GOTO_ERR_IF(pbkdf2Prf(macMeth, CRYPT_MAC_HMAC_SHA256, mdMeth, password, passLen, b, bLen, 1, out, len), ret);
+
+ERR:
+    BSL_SAL_FREE(b);
+
+    return ret;
+}
+
+int32_t CRYPT_SCRYPT_Deinit(CRYPT_SCRYPT_Ctx *ctx)
+{
+    if (ctx == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
+    BSL_SAL_ClearFree(ctx->password, ctx->passLen);
+    BSL_SAL_FREE(ctx->salt);
+    (void)memset_s(ctx, sizeof(CRYPT_SCRYPT_Ctx), 0, sizeof(CRYPT_SCRYPT_Ctx));
+
+    int32_t ret = CRYPT_SCRYPT_InitCtx(ctx);
+    if (ret != CRYPT_SUCCESS) {
+        BSL_ERR_PUSH_ERROR(ret);
+    }
+    return ret;
+}
+
+void CRYPT_SCRYPT_FreeCtx(CRYPT_SCRYPT_Ctx *ctx)
+{
+    if (ctx == NULL) {
+        return;
+    }
+    BSL_SAL_ClearFree(ctx->password, ctx->passLen);
+    BSL_SAL_FREE(ctx->salt);
+    BSL_SAL_Free(ctx);
+}
+
 #endif /* HITLS_CRYPTO_SCRYPT */

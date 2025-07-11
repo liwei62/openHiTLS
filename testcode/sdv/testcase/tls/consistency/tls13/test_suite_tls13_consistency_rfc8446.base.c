@@ -52,10 +52,10 @@
 #include "hlt.h"
 #include "sctp_channel.h"
 #include "logger.h"
-
+#include "stub_crypt.h"
 #define SIGNATURE_ALGORITHMS 0x04, 0x03 /* Fields added to the SERVER_HELLOW message */
 #define READ_BUF_SIZE (18 * 1024)       /* Maximum length of the read message buffer */
-#define TEMP_DATA_LEN 1024              /* Length of a single message */
+#define TEMP_DATA_LEN 2048              /* Length of a single message */
 #define ALERT_BODY_LEN 2u   /* Alert data length */
 
 typedef struct {
@@ -109,7 +109,7 @@ int32_t DefaultCfgStatusPark(HandshakeTestInfo *testInfo)
     if (testInfo->config == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
     testInfo->config->isSupportExtendMasterSecret = testInfo->isSupportExtendMasterSecret;
     testInfo->config->isSupportClientVerify = testInfo->isSupportClientVerify;
     testInfo->config->isSupportNoClientCert = testInfo->isSupportNoClientCert;
@@ -127,7 +127,7 @@ int32_t DefaultCfgStatusParkWithSuite(HandshakeTestInfo *testInfo)
     if (testInfo->config == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
     uint16_t cipherSuits[] = {HITLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256};
     HITLS_CFG_SetCipherSuites(testInfo->config, cipherSuits, sizeof(cipherSuits) / sizeof(uint16_t));
 
@@ -215,6 +215,7 @@ void SetFrameType(FRAME_Type *frametype, uint16_t versionType, REC_Type recordTy
     frametype->recordType = recordType;
     frametype->handshakeType = handshakeType;
     frametype->keyExType = keyExType;
+    frametype->transportType = BSL_UIO_TCP;
 }
 
 FieldState *GetDataAddress(FRAME_Msg *data, void *member)
@@ -242,7 +243,7 @@ void Test_MisClientHelloExtension(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len, 
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
     ASSERT_NE(parseLen, *len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }

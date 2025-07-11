@@ -57,7 +57,7 @@ typedef struct {
 
 static int32_t DoHandshake(ResumeTestInfo *testInfo)
 {
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
 
     testInfo->client = FRAME_CreateLink(testInfo->config, testInfo->uioType);
     if (testInfo->client == NULL) {
@@ -98,7 +98,7 @@ static void Test_PskGetCert(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len, uint32
         ASSERT_EQ(memcpy_s(data, bufSize, certBuf, bufLen), EOK);
         *len = bufLen;
     }
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -116,7 +116,6 @@ exit:
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_CERT_FUNC_TC001()
 {
 
-    HITLS_CryptMethodInit();
     FRAME_Init();
 
     ResumeTestInfo testInfo = {0};
@@ -139,7 +138,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_CERT_FUNC_TC001()
     wrapper.userData = NULL;
     RegisterWrapper(wrapper);
     ASSERT_NE(DoHandshake(&testInfo), HITLS_SUCCESS);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -160,7 +159,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_MISMATCH_FUNC_TC001()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     ResumeTestInfo testInfo = {0};
     testInfo.version = HITLS_VERSION_TLS13;
@@ -179,7 +177,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_MISMATCH_FUNC_TC001()
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_HANDSHAKE_FAILURE);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
     FRAME_FreeLink(testInfo.server);
@@ -205,7 +203,7 @@ static void Test_PskGetCertReq(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len, uin
         ASSERT_EQ(memcpy_s(data, bufSize, certBuf, bufLen), EOK);
         *len = bufLen;
     }
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -222,7 +220,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_CERTREQ_FUNC_TC001()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
 
     ResumeTestInfo testInfo = {0};
@@ -245,7 +242,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_CERTREQ_FUNC_TC001()
     wrapper.userData = NULL;
     RegisterWrapper(wrapper);
     ASSERT_EQ(DoHandshake(&testInfo), HITLS_MSG_HANDLE_UNEXPECTED_MESSAGE);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -266,7 +263,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_MISMATCH_FUNC_TC002()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
 
     ResumeTestInfo testInfo = {0};
@@ -285,7 +281,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_MISMATCH_FUNC_TC002()
     ALERT_GetInfo(testInfo.server->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_HANDSHAKE_FAILURE);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
     FRAME_FreeLink(testInfo.server);
@@ -305,7 +301,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_MISMATCH_FUNC_TC003()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
 
     ResumeTestInfo testInfo = {0};
@@ -324,7 +319,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_MISMATCH_FUNC_TC003()
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_HANDSHAKE_FAILURE);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
     FRAME_FreeLink(testInfo.server);
@@ -351,7 +346,7 @@ static void Test_ClientHelloMissKeyShare(HITLS_Ctx *ctx, uint8_t *data, uint32_t
     frameMsg.body.hsMsg.body.clientHello.supportedGroups.exState = MISSING_FIELD;
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
     ASSERT_NE(parseLen, *len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -368,7 +363,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_MISMATCH_FUNC_TC004()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     RecWrapper wrapper = {TRY_SEND_CLIENT_HELLO, REC_TYPE_HANDSHAKE, false, NULL, Test_ClientHelloMissKeyShare};
     RegisterWrapper(wrapper);
@@ -387,7 +381,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_MISMATCH_FUNC_TC004()
     ALERT_GetInfo(testInfo.server->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_HANDSHAKE_FAILURE);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -408,7 +402,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_MISMATCH_FUNC_TC005()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
 
     RecWrapper wrapper = {TRY_SEND_CLIENT_HELLO, REC_TYPE_HANDSHAKE, false, NULL, Test_ClientHelloMissKeyShare};
@@ -429,7 +422,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_MISMATCH_FUNC_TC005()
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_MISSING_EXTENSION);
 
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -463,7 +456,7 @@ static void Test_ErrorOrderPsk(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len, uin
     ASSERT_EQ(memcpy_s(&data[*len], bufSize - *len, &pskMode, sizeof(pskMode)), EOK);
     *len += sizeof(pskMode);
     ASSERT_EQ(parseLen, *len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -480,7 +473,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_ERR_HEELO_FUNC_TC001()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     RecWrapper wrapper = {TRY_SEND_CLIENT_HELLO, REC_TYPE_HANDSHAKE, false, NULL, Test_ErrorOrderPsk};
     RegisterWrapper(wrapper);
@@ -497,7 +489,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_ERR_HEELO_FUNC_TC001()
     testInfo.server = FRAME_CreateLink(testInfo.config, testInfo.uioType);
     ASSERT_NE(FRAME_CreateConnection(testInfo.client, testInfo.server, true, HS_STATE_BUTT), HITLS_SUCCESS);
 
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -526,14 +518,13 @@ static void Test_RepeatClientHelloExtension(HITLS_Ctx *ctx, uint8_t *data, uint3
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
     ASSERT_NE(parseLen, *len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
 
 static void RepeatClientHelloExtension(void *memberAddress, bool isPsk)
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     ResumeTestInfo testInfo = {0};
     testInfo.version = HITLS_VERSION_TLS13;
@@ -560,7 +551,7 @@ static void RepeatClientHelloExtension(void *memberAddress, bool isPsk)
     ALERT_GetInfo(testInfo.server->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -744,7 +735,7 @@ static void Test_RepeatServerHelloExtension(HITLS_Ctx *ctx, uint8_t *data, uint3
     *extensionState = DUPLICATE_FIELD;
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -762,7 +753,6 @@ exit:
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_ERR_HEELO_FUNC_TC012()
 {
 
-    HITLS_CryptMethodInit();
     FRAME_Init();
     ResumeTestInfo testInfo = {0};
     testInfo.version = HITLS_VERSION_TLS13;
@@ -777,7 +767,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_ERR_HEELO_FUNC_TC012()
         Test_RepeatServerHelloExtension};
     RegisterWrapper(wrapper);
     ASSERT_NE(FRAME_CreateConnection(testInfo.client, testInfo.server, true, HS_STATE_BUTT), HITLS_SUCCESS);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -798,7 +788,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_ERR_HEELO_FUNC_TC013()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     ResumeTestInfo testInfo = {0};
     testInfo.uioType = BSL_UIO_TCP;
@@ -813,7 +802,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_ERR_HEELO_FUNC_TC013()
         Test_RepeatServerHelloExtension};
     RegisterWrapper(wrapper);
     ASSERT_NE(FRAME_CreateConnection(testInfo.client, testInfo.server, true, HS_STATE_BUTT), HITLS_SUCCESS);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -834,7 +823,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC002()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     ResumeTestInfo testInfo = {0};
     testInfo.uioType = BSL_UIO_TCP;
@@ -848,7 +836,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC002()
     uint16_t version = 0;
     ASSERT_EQ(HITLS_GetNegotiatedVersion(testInfo.client->ssl, &version), HITLS_SUCCESS);
     ASSERT_EQ(version, HITLS_VERSION_TLS12);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -875,7 +863,7 @@ static void Test_ErrLegacyVersion(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len, 
     frameMsg.body.hsMsg.body.clientHello.version.data = HITLS_VERSION_TLS13;
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -893,7 +881,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC003()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     RecWrapper wrapper = {TRY_SEND_CLIENT_HELLO, REC_TYPE_HANDSHAKE, false, NULL, Test_ErrLegacyVersion};
     RegisterWrapper(wrapper);
@@ -906,7 +893,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC003()
     testInfo.client = FRAME_CreateLink(testInfo.config, testInfo.uioType);
     ASSERT_EQ(FRAME_CreateConnection(testInfo.client, testInfo.server, true, HS_STATE_BUTT), HITLS_SUCCESS);
     ASSERT_TRUE(testInfo.client->ssl->negotiatedInfo.version == HITLS_VERSION_TLS12);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -927,7 +914,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC004()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     ResumeTestInfo testInfo = {0};
     testInfo.uioType = BSL_UIO_TCP;
@@ -939,7 +925,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC004()
     uint16_t version = 0;
     ASSERT_EQ(HITLS_GetNegotiatedVersion(testInfo.client->ssl, &version), HITLS_SUCCESS);
     ASSERT_EQ(version, HITLS_VERSION_TLS13);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -974,7 +960,7 @@ static void Test_UnknownVersion(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len, ui
     frameMsg.body.hsMsg.body.clientHello.supportedVersion.exLen.data = sizeof(version) + sizeof(uint8_t);
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -992,7 +978,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC005()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     uint16_t version = HITLS_VERSION_TLS13;
     RecWrapper wrapper = {TRY_SEND_CLIENT_HELLO, REC_TYPE_HANDSHAKE, false, &version, Test_UnknownVersion};
@@ -1007,7 +992,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC005()
     version = 0;
     ASSERT_EQ(HITLS_GetNegotiatedVersion(testInfo.client->ssl, &version), HITLS_SUCCESS);
     ASSERT_EQ(version, HITLS_VERSION_TLS13);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1029,7 +1014,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC006()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     uint16_t version = HITLS_VERSION_TLS12;
     RecWrapper wrapper = {
@@ -1052,7 +1036,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC006()
     version = 0;
     ASSERT_EQ(HITLS_GetNegotiatedVersion(testInfo.client->ssl, &version), HITLS_SUCCESS);
     ASSERT_EQ(version, HITLS_VERSION_TLS12);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1093,7 +1077,7 @@ static void Test_ServerVersion(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len, uin
     }
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -1110,7 +1094,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC007()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     uint16_t version = 0;
     RecWrapper wrapper = {TRY_SEND_SERVER_HELLO, REC_TYPE_HANDSHAKE, false, &version, Test_ServerVersion};
@@ -1127,7 +1110,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC007()
     version = 0;
     ASSERT_EQ(HITLS_GetNegotiatedVersion(testInfo.client->ssl, &version), HITLS_SUCCESS);
     ASSERT_EQ(version, HITLS_VERSION_TLS12);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1149,7 +1132,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_CHECK_SERVERHELLO_MASTER_SECRET_FUNC_TC001()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
 
     ResumeTestInfo testInfo = {0};
@@ -1169,7 +1151,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_CHECK_SERVERHELLO_MASTER_SECRET_FUNC_TC001
 
     ASSERT_EQ(FRAME_CreateConnection(testInfo.client, testInfo.server, true, HS_STATE_BUTT), HITLS_SUCCESS);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(testInfo.c_config);
     HITLS_CFG_FreeConfig(testInfo.s_config);
     FRAME_FreeLink(testInfo.client);
@@ -1198,7 +1180,7 @@ static void Test_ServerHelloSessionId(HITLS_Ctx *ctx, uint8_t *data, uint32_t *l
     memset_s(data, bufSize, 0, bufSize);
     ASSERT_EQ(parseLen, *len);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -1216,7 +1198,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_RESUMESH_SESSIONId_LENGTHERR_FUNC_TC001()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
 
     ResumeTestInfo testInfo = {0};
@@ -1243,7 +1224,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_RESUMESH_SESSIONId_LENGTHERR_FUNC_TC001()
     ALERT_GetInfo(testInfo.client->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_DECODE_ERROR);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1264,7 +1245,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC008()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     uint16_t version = HITLS_VERSION_TLS12;
     RecWrapper wrapper = {TRY_SEND_SERVER_HELLO, REC_TYPE_HANDSHAKE, false, &version, Test_ServerVersion};
@@ -1278,7 +1258,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC008()
     testInfo.client = FRAME_CreateLink(testInfo.config, testInfo.uioType);
     ASSERT_NE(FRAME_CreateConnection(testInfo.client, testInfo.server, true, HS_STATE_BUTT),
         HITLS_SUCCESS);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1299,7 +1279,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC009()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     uint16_t version = HITLS_VERSION_TLS13;
     RecWrapper wrapper = {
@@ -1320,7 +1299,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_SUPPORT_VERSION_FUNC_TC009()
     version = 0;
     ASSERT_EQ(HITLS_GetNegotiatedVersion(testInfo.client->ssl, &version), HITLS_SUCCESS);
     ASSERT_EQ(version, HITLS_VERSION_TLS13);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1354,14 +1333,13 @@ static void Test_ErrorServerVersion(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len
     }
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
 
 static void ErrorServerVersion(uint16_t version)
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     RecWrapper wrapper = {
         TRY_SEND_SERVER_HELLO,
@@ -1382,9 +1360,9 @@ static void ErrorServerVersion(uint16_t version)
         ALERT_Info alert = { 0 };
         ALERT_GetInfo(testInfo.client->ssl, &alert);
         ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
-        ASSERT_EQ(alert.description, ALERT_PROTOCOL_VERSION);
+        ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
     }
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1465,7 +1443,7 @@ static void Test_AbsentGroup(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len, uint3
     frameMsg.body.hsMsg.body.clientHello.supportedGroups.exDataLen.data = sizeof(uint16_t);
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -1485,7 +1463,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_KEY_SHARE_FUNC_TC001()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     RecWrapper wrapper = {
         TRY_SEND_CLIENT_HELLO,
@@ -1506,7 +1483,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_KEY_SHARE_FUNC_TC001()
     ALERT_GetInfo(testInfo.server->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1517,7 +1494,6 @@ exit:
 
 static void HelloRetryRequest(WrapperFunc func)
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     RecWrapper wrapper = {
         TRY_SEND_HELLO_RETRY_REQUEST,
@@ -1543,7 +1519,7 @@ static void HelloRetryRequest(WrapperFunc func)
     ALERT_GetInfo(testInfo.client->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1569,7 +1545,7 @@ static void Test_HelloRetryRequest(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len,
     frameMsg.body.hsMsg.body.serverHello.keyShare.data.group.data = HITLS_EC_GROUP_SECP384R1;
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -1610,7 +1586,7 @@ static void Test_HelloRetryRequestSameGroup(HITLS_Ctx *ctx, uint8_t *data, uint3
     frameMsg.body.hsMsg.body.serverHello.keyShare.data.group.data = HITLS_EC_GROUP_CURVE25519;
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -1646,7 +1622,6 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_KEY_SHARE_FUNC_TC003()
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_KEY_SHARE_FUNC_TC004()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     RecWrapper wrapper = {
         TRY_SEND_HELLO_RETRY_REQUEST,
@@ -1671,7 +1646,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_KEY_SHARE_FUNC_TC004()
     ALERT_GetInfo(testInfo.server->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1692,7 +1667,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC001()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     ResumeTestInfo testInfo = {0};
     testInfo.uioType = BSL_UIO_TCP;
@@ -1717,7 +1691,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC001()
     uint8_t isReused = 0;
     ASSERT_EQ(HITLS_IsSessionReused(testInfo.client->ssl, &isReused), HITLS_SUCCESS);
     ASSERT_EQ(isReused, 0);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1745,7 +1719,7 @@ static void Test_InvalidSelectedIdentity(HITLS_Ctx *ctx, uint8_t *data, uint32_t
     frameMsg.body.hsMsg.body.serverHello.pskSelectedIdentity.data.data = 1;
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -1763,7 +1737,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC002()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     RecWrapper wrapper = {
         TRY_SEND_SERVER_HELLO,
@@ -1787,7 +1760,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC002()
     ALERT_GetInfo(testInfo.client->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1809,7 +1782,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC003()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     ResumeTestInfo testInfo = {0};
     testInfo.uioType = BSL_UIO_TCP;
@@ -1839,7 +1811,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC003()
     ALERT_GetInfo(testInfo.client->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1867,7 +1839,7 @@ static void Test_InvalidCipherSuites(HITLS_Ctx *ctx, uint8_t *data, uint32_t *le
     frameMsg.body.hsMsg.body.serverHello.cipherSuite.data = HITLS_AES_256_GCM_SHA384;
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -1885,7 +1857,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC004()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     RecWrapper wrapper = {
         TRY_SEND_SERVER_HELLO,
@@ -1910,7 +1881,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC004()
     ALERT_GetInfo(testInfo.client->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1933,7 +1904,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC005()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     RecWrapper wrapper = {
         TRY_SEND_CLIENT_HELLO,
@@ -1957,7 +1927,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC005()
     ALERT_GetInfo(testInfo.server->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -1979,7 +1949,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC006()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     ResumeTestInfo testInfo = {0};
     testInfo.uioType = BSL_UIO_TCP;
@@ -2010,7 +1979,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC006()
     ALERT_GetInfo(testInfo.server->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -2044,7 +2013,7 @@ static void Test_ServerErrorOrderPsk(HITLS_Ctx *ctx, uint8_t *data, uint32_t *le
     ASSERT_EQ(memcpy_s(&data[*len], bufSize - *len, &supportedVersion, sizeof(supportedVersion)), EOK);
     *len += sizeof(supportedVersion);
     ASSERT_EQ(parseLen, *len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -2062,7 +2031,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC007()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     RecWrapper wrapper = {
         TRY_SEND_CERTIFICATE_VERIFY,
@@ -2082,7 +2050,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC007()
     testInfo.client = FRAME_CreateLink(testInfo.config, testInfo.uioType);
     testInfo.server = FRAME_CreateLink(testInfo.config, testInfo.uioType);
     ASSERT_EQ(FRAME_CreateConnection(testInfo.client, testInfo.server, false, HS_STATE_BUTT), HITLS_SUCCESS);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -2104,7 +2072,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC008()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     ResumeTestInfo testInfo = {0};
     testInfo.uioType = BSL_UIO_TCP;
@@ -2131,7 +2098,7 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_PSK_FUNC_TC008()
     };
     RegisterWrapper(wrapper);
     ASSERT_EQ(FRAME_CreateConnection(testInfo.client, testInfo.server, true, HS_STATE_BUTT), HITLS_SUCCESS);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -2163,14 +2130,13 @@ static void Test_HrrMisClientHelloExtension(HITLS_Ctx *ctx, uint8_t *data, uint3
         memset_s(data, bufSize, 0, bufSize);
         FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
     }
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
 
 static void WithoutPskMisKeyExtension(void *memberAddress, bool isResume, bool isHrr)
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     ResumeTestInfo testInfo = {0};
     testInfo.uioType = BSL_UIO_TCP;
@@ -2212,7 +2178,7 @@ static void WithoutPskMisKeyExtension(void *memberAddress, bool isResume, bool i
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_MISSING_EXTENSION);
 
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -2321,5 +2287,277 @@ void UT_TLS_TLS13_RFC8446_CONSISTENCY_EXTENSION_ASSOCIATION_FUNC_TC005()
     bool isHrr = true;
     WithoutPskMisKeyExtension(&((FRAME_Msg *)0)->body.hsMsg.body.clientHello.supportedGroups.exState, isResume, isHrr);
     WithoutPskMisKeyExtension(&((FRAME_Msg *)0)->body.hsMsg.body.clientHello.keyshares.exState, isResume, isHrr);
+}
+/* END_CASE */
+
+static void Test_CertificateExtensionError001(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len,
+    uint32_t bufSize, void *user)
+{
+    (void)ctx;
+    (void)user;
+    FRAME_Type frameType = {0};
+    frameType.versionType = HITLS_VERSION_TLS13;
+    FRAME_Msg frameMsg = {0};
+    frameMsg.recType.data = REC_TYPE_HANDSHAKE;
+    frameMsg.length.data = *len;
+    frameMsg.recVersion.data = HITLS_VERSION_TLS13;
+    uint32_t parseLen = 0;
+    FRAME_ParseMsgBody(&frameType, data, *len, &frameMsg, &parseLen);
+    ASSERT_EQ(parseLen, *len);
+    ASSERT_EQ(frameMsg.body.hsMsg.type.data, CERTIFICATE);
+    FrameCertItem *certItem = frameMsg.body.hsMsg.body.certificate.certItem;
+
+    // status_request Certificate Allowed Extensions. type(2) + len(2) + ctx(len)
+    uint8_t certExtension[] = {0x00, 0x05, 0x00, 0x05, 0x01, 0x00, 0x00, 0x00, 0x00};
+    uint32_t extensionLen = sizeof(certExtension);
+
+    uint8_t *extensionData = BSL_SAL_Calloc(extensionLen, sizeof(uint8_t));
+    ASSERT_TRUE(extensionData != NULL);
+    ASSERT_EQ(memcpy_s(extensionData, extensionLen, certExtension, extensionLen), EOK);
+    certItem->extension.state = ASSIGNED_FIELD;
+    BSL_SAL_FREE(certItem->extension.data);
+    certItem->extension.data = extensionData;
+    certItem->extension.size = extensionLen;
+    certItem->extensionLen.state = ASSIGNED_FIELD;
+    certItem->extensionLen.data = extensionLen;
+    *len += extensionLen;
+
+    memset_s(data, bufSize, 0, bufSize);
+    FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
+EXIT:
+    FRAME_CleanMsg(&frameType, &frameMsg);
+    return;
+}
+
+/** @
+* @test  UT_TLS_TLS13_RFC8446_CERT_EXTENSION_TC001
+* @spec  -
+* @title The test certificate message carries the extension of the response. However, due to the current feature not
+*        being supported, requests will not be sent proactively. Expected to send illegal alerts and disconnect links.
+* @precon  nan
+* @brief
+*   1. Apply and initialize config
+*   2. Set the certificate message sent by the server to the client to include the status_request extension
+*   3. Establish a connection and observe client behavior
+* @expect
+*   1. Initialization successful
+*   2. Setup successful
+*   3. The client returns alert ALERT_ILLEGAL_PARAMETER.
+@ */
+/* BEGIN_CASE */
+void UT_TLS_TLS13_RFC8446_CERT_EXTENSION_TC001()
+{
+    FRAME_Init();
+
+    ResumeTestInfo testInfo = {0};
+    testInfo.version = HITLS_VERSION_TLS13;
+    testInfo.uioType = BSL_UIO_TCP;
+
+    testInfo.config = HITLS_CFG_NewTLS13Config();
+    ASSERT_TRUE(testInfo.config != NULL);
+    testInfo.config->isSupportClientVerify = true;
+    RecWrapper wrapper = {TRY_SEND_CERTIFICATE, REC_TYPE_HANDSHAKE, false, NULL, Test_CertificateExtensionError001};
+    RegisterWrapper(wrapper);
+
+    HITLS_CFG_SetCheckKeyUsage(testInfo.config, false);
+
+    testInfo.client = FRAME_CreateLink(testInfo.config, testInfo.uioType);
+    ASSERT_TRUE(testInfo.client != NULL);
+
+    testInfo.server = FRAME_CreateLink(testInfo.config, testInfo.uioType);
+    ASSERT_TRUE(testInfo.server != NULL);
+
+    ASSERT_EQ(FRAME_CreateConnection(testInfo.client, testInfo.server, true, HS_STATE_BUTT),
+        HITLS_MSG_HANDLE_UNSUPPORT_EXTENSION_TYPE);
+    ALERT_Info alert = {0};
+    ALERT_GetInfo(testInfo.client->ssl, &alert);
+    ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
+    ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
+EXIT:
+    ClearWrapper();
+    HITLS_CFG_FreeConfig(testInfo.config);
+    FRAME_FreeLink(testInfo.client);
+    FRAME_FreeLink(testInfo.server);
+}
+/* END_CASE */
+
+static void Test_CertificateExtensionError002(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len,
+    uint32_t bufSize, void *user)
+{
+    (void)ctx;
+    (void)user;
+    FRAME_Type frameType = {0};
+    frameType.versionType = HITLS_VERSION_TLS13;
+    FRAME_Msg frameMsg = {0};
+    frameMsg.recType.data = REC_TYPE_HANDSHAKE;
+    frameMsg.length.data = *len;
+    frameMsg.recVersion.data = HITLS_VERSION_TLS13;
+    uint32_t parseLen = 0;
+    FRAME_ParseMsgBody(&frameType, data, *len, &frameMsg, &parseLen);
+    ASSERT_EQ(parseLen, *len);
+    ASSERT_EQ(frameMsg.body.hsMsg.type.data, CERTIFICATE);
+    FrameCertItem *certItem = frameMsg.body.hsMsg.body.certificate.certItem;
+
+    // signature_algorithm Certificate-recognized but disallowed extensions. type(2) + len(2) + ctx(len)
+    uint8_t certExtension[] = {0x00, 0x0d, 0x00, 0x04, 0x00, 0x00, 0x08, 0x09};
+    uint32_t extensionLen = sizeof(certExtension);
+
+    uint8_t *extensionData = BSL_SAL_Calloc(extensionLen, sizeof(uint8_t));
+    ASSERT_TRUE(extensionData != NULL);
+    ASSERT_EQ(memcpy_s(extensionData, extensionLen, certExtension, extensionLen), EOK);
+    certItem->extension.state = ASSIGNED_FIELD;
+    BSL_SAL_FREE(certItem->extension.data);
+    certItem->extension.data = extensionData;
+    certItem->extension.size = extensionLen;
+    certItem->extensionLen.state = ASSIGNED_FIELD;
+    certItem->extensionLen.data = extensionLen;
+    *len += extensionLen;
+
+    memset_s(data, bufSize, 0, bufSize);
+    FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
+EXIT:
+    FRAME_CleanMsg(&frameType, &frameMsg);
+    return;
+}
+
+/** @
+* @test  UT_TLS_TLS13_RFC8446_CERT_EXTENSION_TC002
+* @spec  -
+* @title The test certificate message carries identifiable but not allowed extensions. Expected to send illegal
+*       alerts and disconnect.
+* @precon  nan
+* @brief
+*   1. Apply and initialize config
+*   2. Set the certificate message sent by the server to the client to include the signature_algorithm extension
+*   3. Establish a connection and observe client behavior
+* @expect
+*   1. Initialization successful
+*   2. Setup successful
+*   3. The client returns alert ALERT_ILLEGAL_PARAMETER.
+@ */
+/* BEGIN_CASE */
+void UT_TLS_TLS13_RFC8446_CERT_EXTENSION_TC002()
+{
+    FRAME_Init();
+
+    ResumeTestInfo testInfo = {0};
+    testInfo.version = HITLS_VERSION_TLS13;
+    testInfo.uioType = BSL_UIO_TCP;
+
+    testInfo.config = HITLS_CFG_NewTLS13Config();
+    ASSERT_TRUE(testInfo.config != NULL);
+    testInfo.config->isSupportClientVerify = true;
+    RecWrapper wrapper = {TRY_SEND_CERTIFICATE, REC_TYPE_HANDSHAKE, false, NULL, Test_CertificateExtensionError002};
+    RegisterWrapper(wrapper);
+
+    HITLS_CFG_SetCheckKeyUsage(testInfo.config, false);
+
+    testInfo.client = FRAME_CreateLink(testInfo.config, testInfo.uioType);
+    ASSERT_TRUE(testInfo.client != NULL);
+
+    testInfo.server = FRAME_CreateLink(testInfo.config, testInfo.uioType);
+    ASSERT_TRUE(testInfo.server != NULL);
+
+    ASSERT_EQ(FRAME_CreateConnection(testInfo.client, testInfo.server, true, HS_STATE_BUTT),
+        HITLS_MSG_HANDLE_UNSUPPORT_EXTENSION_TYPE);
+    ALERT_Info alert = {0};
+    ALERT_GetInfo(testInfo.client->ssl, &alert);
+    ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
+    ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
+EXIT:
+    ClearWrapper();
+    HITLS_CFG_FreeConfig(testInfo.config);
+    FRAME_FreeLink(testInfo.client);
+    FRAME_FreeLink(testInfo.server);
+}
+/* END_CASE */
+
+static void Test_CertificateExtensionError003(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len,
+    uint32_t bufSize, void *user)
+{
+    (void)ctx;
+    (void)user;
+    FRAME_Type frameType = {0};
+    frameType.versionType = HITLS_VERSION_TLS13;
+    FRAME_Msg frameMsg = {0};
+    frameMsg.recType.data = REC_TYPE_HANDSHAKE;
+    frameMsg.length.data = *len;
+    frameMsg.recVersion.data = HITLS_VERSION_TLS13;
+    uint32_t parseLen = 0;
+    FRAME_ParseMsgBody(&frameType, data, *len, &frameMsg, &parseLen);
+    ASSERT_EQ(parseLen, *len);
+    ASSERT_EQ(frameMsg.body.hsMsg.type.data, CERTIFICATE);
+    FrameCertItem *certItem = frameMsg.body.hsMsg.body.certificate.certItem;
+
+    // Unrecognized Extensions. type(2) + len(2) + ctx(len)
+    uint8_t certExtension[] = {0x00, 0x56, 0x00, 0x05, 0x01, 0x00, 0x00, 0x00, 0x00};
+    uint32_t extensionLen = sizeof(certExtension);
+
+    uint8_t *extensionData = BSL_SAL_Calloc(extensionLen, sizeof(uint8_t));
+    ASSERT_TRUE(extensionData != NULL);
+    ASSERT_EQ(memcpy_s(extensionData, extensionLen, certExtension, extensionLen), EOK);
+    certItem->extension.state = ASSIGNED_FIELD;
+    BSL_SAL_FREE(certItem->extension.data);
+    certItem->extension.data = extensionData;
+    certItem->extension.size = extensionLen;
+    certItem->extensionLen.state = ASSIGNED_FIELD;
+    certItem->extensionLen.data = extensionLen;
+    *len += extensionLen;
+
+    memset_s(data, bufSize, 0, bufSize);
+    FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
+EXIT:
+    FRAME_CleanMsg(&frameType, &frameMsg);
+    return;
+}
+
+/** @
+* @test  UT_TLS_TLS13_RFC8446_CERT_EXTENSION_TC003
+* @spec  -
+* @title Test certificate message carrying unrecognized extensions. Expected to send illegal alerts and disconnect
+* @precon  nan
+* @brief
+*   1. Apply and initialize config
+*   2. Set the certificate message sent by the server to the client to include the unrecognized extension
+*   3. Establish a connection and observe client behavior
+* @expect
+*   1. Initialization successful
+*   2. Setup successful
+*   3. The client returns alert ALERT_ILLEGAL_PARAMETER.
+@ */
+/* BEGIN_CASE */
+void UT_TLS_TLS13_RFC8446_CERT_EXTENSION_TC003()
+{
+    FRAME_Init();
+
+    ResumeTestInfo testInfo = {0};
+    testInfo.version = HITLS_VERSION_TLS13;
+    testInfo.uioType = BSL_UIO_TCP;
+
+    testInfo.config = HITLS_CFG_NewTLS13Config();
+    ASSERT_TRUE(testInfo.config != NULL);
+    testInfo.config->isSupportClientVerify = true;
+    RecWrapper wrapper = {TRY_SEND_CERTIFICATE, REC_TYPE_HANDSHAKE, false, NULL, Test_CertificateExtensionError003};
+    RegisterWrapper(wrapper);
+
+    HITLS_CFG_SetCheckKeyUsage(testInfo.config, false);
+
+    testInfo.client = FRAME_CreateLink(testInfo.config, testInfo.uioType);
+    ASSERT_TRUE(testInfo.client != NULL);
+
+    testInfo.server = FRAME_CreateLink(testInfo.config, testInfo.uioType);
+    ASSERT_TRUE(testInfo.server != NULL);
+
+    ASSERT_EQ(FRAME_CreateConnection(testInfo.client, testInfo.server, true, HS_STATE_BUTT),
+        HITLS_MSG_HANDLE_UNSUPPORT_EXTENSION_TYPE);
+    ALERT_Info alert = {0};
+    ALERT_GetInfo(testInfo.client->ssl, &alert);
+    ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
+    ASSERT_EQ(alert.description, ALERT_ILLEGAL_PARAMETER);
+EXIT:
+    ClearWrapper();
+    HITLS_CFG_FreeConfig(testInfo.config);
+    FRAME_FreeLink(testInfo.client);
+    FRAME_FreeLink(testInfo.server);
 }
 /* END_CASE */

@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "hitls_build.h"
 #include "hitls_cert_type.h"
 #include "hitls_cert.h"
 #include "hitls_debug.h"
@@ -27,7 +28,11 @@
 #include "hitls_security.h"
 #include "hitls_sni.h"
 #include "hitls_alpn.h"
+#include "hitls_cookie.h"
 #include "sal_atomic.h"
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+#include "crypt_eal_provider.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,22 +54,82 @@ typedef struct TlsSessionManager TLS_SessionMgr;
 
 #define HITLS_TICKET_KEY_NAME_SIZE  16u
 #define HITLS_TICKET_KEY_SIZE       32u
+#define HITLS_TICKET_IV_SIZE  16u
 
 /* the default number of tickets of TLS1.3 server is 2 */
 #define HITLS_TLS13_TICKET_NUM_DEFAULT 2u
-
+#define HITLS_MAX_EMPTY_RECORDS 32
+#ifdef HITLS_TLS_FEATURE_MAX_SEND_FRAGMENT
+#define HITLS_MAX_SEND_FRAGMENT_DEFAULT 16384
+#endif
 /* max cert list is 100k */
 #define HITLS_MAX_CERT_LIST_DEFAULT (1024 * 100)
+
+/**
+ * @brief Group information
+ */
+typedef struct {
+    char *name;           // group name
+    int32_t paraId;             // parameter id CRYPT_PKEY_ParaId
+    int32_t algId;              // algorithm id CRYPT_PKEY_AlgId
+    int32_t secBits;           // security bits
+    uint16_t groupId;           // iana group id, HITLS_NamedGroup
+    int32_t pubkeyLen;         // public key length(CH keyshare / SH keyshare)
+    int32_t sharedkeyLen;      // shared key length
+    int32_t ciphertextLen;     // ciphertext length(SH keyshare)
+    uint32_t versionBits;       // TLS_VERSION_MASK
+    bool isKem;                // true: KEM, false: KEX
+} TLS_GroupInfo;
+
+/**
+ * @brief Signature scheme information
+ */
+typedef struct {
+    char *name;
+    uint16_t signatureScheme; // HITLS_SignHashAlgo, IANA specified
+    int32_t keyType;          // HITLS_CERT_KeyType
+    int32_t paraId;           // CRYPT_PKEY_ParaId
+    int32_t signHashAlgId;    // combined sign hash algorithm id
+    int32_t signAlgId;        // CRYPT_PKEY_AlgId
+    int32_t hashAlgId;        // CRYPT_MD_AlgId
+    int32_t secBits;          // security bits
+    uint32_t certVersionBits;      // TLS_VERSION_MASK
+    uint32_t chainVersionBits; // TLS_VERSION_MASK
+} TLS_SigSchemeInfo;
+
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+/**
+ * @brief   TLS capability data
+ */
+typedef struct {
+    HITLS_Config *config;
+    CRYPT_EAL_ProvMgrCtx *provMgrCtx;
+} TLS_CapabilityData;
+#define TLS_CAPABILITY_LIST_MALLOC_SIZE 10
+#endif
+
+typedef struct CustomExt_Methods HITLS_CustomExts;
 
 /**
  * @brief   TLS Global Configuration
  */
 typedef struct TlsConfig {
     BSL_SAL_RefCount references;        /* reference count */
+    HITLS_Lib_Ctx *libCtx;          /* library context */
+    const char *attrName;              /* attrName */
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    TLS_GroupInfo *groupInfo;
+    uint32_t groupInfolen;
+    uint32_t groupInfoSize;
+    TLS_SigSchemeInfo *sigSchemeInfo;
+    uint32_t sigSchemeInfolen;
+    uint32_t sigSchemeInfoSize;
+#endif
     uint32_t version;                   /* supported proto version */
     uint32_t originVersionMask;         /* the original supported proto version mask */
     uint16_t minVersion;                /* min supported proto version */
     uint16_t maxVersion;                /* max supported proto version */
+    uint32_t modeSupport;               /* support mode */
 
     uint16_t *tls13CipherSuites;        /* tls13 cipher suite */
     uint32_t tls13cipherSuitesSize;
@@ -88,6 +153,9 @@ typedef struct TlsConfig {
     uint8_t *serverName;                /* server name */
     uint32_t serverNameSize;            /* server name size */
 
+    int32_t readAhead;                  /* need read more data into user buffer, nonzero indicates yes, otherwise no */
+    uint32_t emptyRecordsNum;           /* the max number of empty records can be received */
+
     /* TLS1.2 psk */
     uint8_t *pskIdentityHint;           /* psk identity hint */
     uint32_t hintSize;
@@ -98,16 +166,17 @@ typedef struct TlsConfig {
     HITLS_PskFindSessionCb pskFindSessionCb;    /* TLS1.3 PSK server callback */
     HITLS_PskUseSessionCb pskUseSessionCb;      /* TLS1.3 PSK client callback */
 
-    HITLS_NoSecRenegotiationCb noSecRenegotiationCb;     /* callback for the peer unsupported security renegotiation */
+    HITLS_DtlsTimerCb dtlsTimerCb;      /* DTLS get the timeout callback */
+    uint32_t dtlsPostHsTimeoutVal;      /* DTLS over UDP completed handshake timeout */
 
     HITLS_CRYPT_Key *dhTmp;             /* Temporary DH key set by the user */
-    HITLS_CRYPT_Key *ecdhTmp;           /* Temporary ECDH key set by the user */
+    HITLS_DhTmpCb dhTmpCb;              /* Temporary ECDH key set by the user */
 
     HITLS_InfoCb infoCb;                /* information indicator callback */
     HITLS_MsgCb msgCb;                  /* message callback function cb for observing all SSL/TLS protocol messages */
     void *msgArg;                       /*  set argument arg to the callback function */
 
-    HITLS_RecordPaddingCb  recordPaddingCb; /* the callback to specify the padding for TLS 1.3 records */
+    HITLS_RecordPaddingCb recordPaddingCb; /* the callback to specify the padding for TLS 1.3 records */
     void *recordPaddingArg;                 /* assign a value arg that is passed to the callback */
 
     uint32_t keyExchMode;               /* TLS1.3 psk exchange mode */
@@ -121,6 +190,7 @@ typedef struct TlsConfig {
     uint8_t sessionIdCtx[HITLS_SESSION_ID_CTX_MAX_SIZE];  /* the sessionId context */
 
     uint32_t ticketNums;                /* TLS1.3 ticket number */
+    uint16_t maxSendFragment;           /* max send fragment to restrict the amount of plaintext bytes in any record  */
     TLS_SessionMgr *sessMgr;            /* session management */
 
     void *userData;                     /* user data */
@@ -129,6 +199,8 @@ typedef struct TlsConfig {
     bool needCheckKeyUsage;             /* whether to check keyusage, default on */
     bool needCheckPmsVersion;           /* whether to verify the version in premastersecret */
     bool isSupportRenegotiation;        /* support renegotiation */
+    bool allowClientRenegotiate;      /* allow a renegotiation initiated by the client */
+    bool allowLegacyRenegotiate;        /* whether to abort handshake when server doesn't support SecRenegotiation */
     bool isResumptionOnRenego;          /* supports session resume during renegotiation */
     bool isSupportDhAuto;               /* the DH parameter to be automatically selected */
 
@@ -149,6 +221,10 @@ typedef struct TlsConfig {
     bool isSupportSessionTicket;        /* is support session ticket */
     bool isSupportServerPreference;     /* server cipher suites can be preferentially selected */
 
+    /* DTLS */
+#if defined(HITLS_TLS_PROTO_DTLS12) && defined(HITLS_BSL_UIO_UDP)
+    bool isSupportDtlsCookieExchange;    /* is dtls support cookie exchange */
+#endif
     /**
      * Configurations in the HITLS_Ctx are classified into private configuration and global configuration.
      * The following parameters directly reference the global configuration in tls.
@@ -160,10 +236,23 @@ typedef struct TlsConfig {
     void *alpnUserData;                 /* the user data for alpn callback */
     void *sniArg;			            /* the args for servername callback */
     HITLS_SniDealCb sniDealCb;          /* server name callback function */
+#ifdef HITLS_TLS_FEATURE_CLIENT_HELLO_CB
     HITLS_ClientHelloCb clientHelloCb;          /* ClientHello callback */
     void *clientHelloCbArg;                     /* the args for ClientHello callback */
+#endif /* HITLS_TLS_FEATURE_CLIENT_HELLO_CB */
+#ifdef HITLS_TLS_PROTO_DTLS12
+    HITLS_AppGenCookieCb appGenCookieCb;
+    HITLS_AppVerifyCookieCb appVerifyCookieCb;
+#endif
     HITLS_NewSessionCb newSessionCb;    /* negotiates to generate a session */
+    HITLS_KeyLogCb keyLogCb;            /* the key log callback */
+    bool isKeepPeerCert;                /* whether to save the peer certificate */
+
+    HITLS_CustomExts *customExts;
 } TLS_Config;
+
+#define LIBCTX_FROM_CONFIG(config) ((config == NULL) ? NULL : (config)->libCtx)
+#define ATTRIBUTE_FROM_CONFIG(config) ((config == NULL) ? NULL : (config)->attrName)
 
 #ifdef __cplusplus
 }

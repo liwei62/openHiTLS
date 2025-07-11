@@ -34,8 +34,6 @@ void PrintLastError(void) {
     printf("failed at file %s at line %d\n", file, line);
 }
 
-BSL_SAL_MemCallback cb = { StdMalloc, free };  // Registered interfaces for memory allocation.
-
 int main(void)
 {
     uint8_t data[10] = {0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x1c, 0x14};
@@ -60,11 +58,12 @@ int main(void)
 
     /**
      * Before calling the algorithm APIs,
-     * call the BSL_SAL_RegMemCallback function to register the malloc and free functions.
+     * call the BSL_SAL_CallBack_Ctrl function to register the malloc and free functions.
      * Execute this step only once. If the memory allocation ability of Linux is available,
      * the two functions can be registered using Linux by default.
     */
-    BSL_SAL_RegMemCallback(&cb);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_MALLOC, StdMalloc);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_FREE, free);
 
     // Create a context.
     CRYPT_EAL_CipherCtx *ctx = CRYPT_EAL_CipherNewCtx(CRYPT_CIPHER_SM4_CBC);
@@ -82,14 +81,14 @@ int main(void)
         // Output the error code. You can find the error information in **crypt_errno.h** based on the error code.
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
     // Set the padding mode.
     ret = CRYPT_EAL_CipherSetPadding(ctx, CRYPT_PADDING_PKCS7);
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
     /**
      * Enter the data to be calculated. This interface can be called for multiple times.
@@ -101,7 +100,7 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     outTotalLen += outLen;
@@ -111,7 +110,7 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     outTotalLen += outLen;
@@ -132,7 +131,7 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Set the padding mode, which must be the same as that for encryption.
@@ -140,7 +139,7 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Enter the ciphertext data.
@@ -148,7 +147,7 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
     outTotalLen += outLen;
     outLen = sizeof(plainText) - outTotalLen;
@@ -158,7 +157,7 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     outTotalLen += outLen;
@@ -171,11 +170,11 @@ int main(void)
 
     if (outTotalLen != dataLen || memcmp(plainText, data, dataLen) != 0) {
         printf("plaintext comparison failed\n");
-        goto exit;
+        goto EXIT;
     }
     printf("pass \n");
 
-exit:
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
     BSL_ERR_DeInit();
     return ret;

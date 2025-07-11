@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 
 #include "hitls_error.h"
 #include "hitls_type.h"
@@ -130,9 +131,9 @@ int32_t SetFrameHandle(HLT_FrameHandle *frameHandle)
     g_frameHandle.expectReType = frameHandle->expectReType;
     g_frameHandle.ioState = frameHandle->ioState;
     g_frameHandle.pointType = frameHandle->pointType;
-    g_frameHandle.method.write = frameHandle->method.write;
-    g_frameHandle.method.read = frameHandle->method.read;
-    g_frameHandle.method.ctrl = frameHandle->method.ctrl;
+    g_frameHandle.method.uioWrite = frameHandle->method.uioWrite;
+    g_frameHandle.method.uioRead = frameHandle->method.uioRead;
+    g_frameHandle.method.uioCtrl = frameHandle->method.uioCtrl;
 
     return HITLS_SUCCESS;
 }
@@ -146,9 +147,9 @@ void CleanFrameHandle(void)
     g_frameHandle.expectReType = 0;
     g_frameHandle.ioState = 0;
     g_frameHandle.pointType = 0;
-    g_frameHandle.method.write = NULL;
-    g_frameHandle.method.read = NULL;
-    g_frameHandle.method.ctrl = NULL;
+    g_frameHandle.method.uioWrite = NULL;
+    g_frameHandle.method.uioRead = NULL;
+    g_frameHandle.method.uioCtrl = NULL;
 }
 
 HLT_FrameHandle *GetFrameHandle(void)
@@ -192,6 +193,7 @@ void FreeNewBuf(void *newBuf)
 {
     if (newBuf != NULL) {
         free(newBuf);
+        newBuf = NULL;
     }
 }
 
@@ -212,9 +214,9 @@ uint8_t *GetNewBuf(const void *buf, uint32_t len, uint32_t *packLen)
     uint32_t newOffset = 0;
 
     while (offset < *packLen) {
-        /* Currently, encryption and decryption are not performed.
-         * Therefore, the return value is not determined
-         * because the encrypted messages such as finished messages will fail to be parsed
+        /* Currently, encryption and decryption are not performed. 
+         * Therefore, the return value is not determined 
+         * because the encrypted messages such as finished messages will fail to be parsed 
          */
         (void)FRAME_ParseMsg(&frameType, &((uint8_t*)buf)[offset], len - offset, &msg, &parseLen);
 
@@ -230,6 +232,9 @@ uint8_t *GetNewBuf(const void *buf, uint32_t len, uint32_t *packLen)
                 g_frameHandle.userData = (void *)&frameType;
             }
             g_frameHandle.frameCallBack(&msg, g_frameHandle.userData);
+            if (g_frameHandle.userData == (void *)&frameType) {
+                g_frameHandle.userData = NULL;
+            }
             /* Pack the newly constructed msg into a buffer */
             if (FRAME_PackMsg(&frameType, &msg, &newBuf[newOffset], MAX_LEN - newOffset, &packLenTmp) != HITLS_SUCCESS) {
                 FRAME_CleanMsg(&frameType, &msg);

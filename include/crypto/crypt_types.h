@@ -36,9 +36,19 @@ extern "C" {
  * Data structure
  */
 typedef struct {
-    uint8_t *data;   /**< Data content */
-    uint32_t len;    /**< Data length */
+    uint8_t *data; /**< Data content */
+    uint32_t len; /**< Data length */
 } CRYPT_Data;
+
+/**
+ * @ingroup crypt_types
+ *
+ * Constant data structure
+ */
+typedef struct {
+    const uint8_t *data;
+    uint32_t len;
+} CRYPT_ConstData;
 
 /**
  * @ingroup crypt_types
@@ -46,18 +56,24 @@ typedef struct {
  * Data range
  */
 typedef struct {
-uint32_t min;  /**< Minimum value */
-uint32_t max;  /**< Maximum value */
+    uint32_t min; /**< Minimum value */
+    uint32_t max; /**< Maximum value */
 } CRYPT_Range;
 
 /**
  * @ingroup crypt_types
  *
- * Pkcsv15 padding mode, when RSA is used for signature.
+ * RSA salt length type, when rsa pss mode is used for signature and verify
  */
-typedef struct {
-    CRYPT_MD_AlgId mdId; /**< ID of the hash algorithm during pkcsv15 padding */
-} CRYPT_RSA_PkcsV15Para;
+typedef enum {
+    // When the padding type is PSS, the salt data is obtained by the DRBG and the length is hashlen.
+    CRYPT_RSA_SALTLEN_TYPE_HASHLEN = -1,
+    // When the padding type is PSS, the salt data is obtained by the DRBG.
+    // and the length is padLen - mdMethod->GetDigestSize - 2
+    CRYPT_RSA_SALTLEN_TYPE_MAXLEN = -2,
+    // get salt length from signature, only used verify.
+    CRYPT_RSA_SALTLEN_TYPE_AUTOLEN = -3
+} CRYPT_RSA_SaltLenType;
 
 /**
  * @ingroup crypt_types
@@ -65,20 +81,22 @@ typedef struct {
  * PSS padding mode, when RSA is used for signature.
  */
 typedef struct {
-    int32_t saltLen;      /**< pss salt length. the value -1 indicates hashLen, and the value -2 indicates MaxLen. */
-    CRYPT_MD_AlgId mdId;  /**< mdid when pss padding. */
+    int32_t saltLen; /**< pss salt length. enum values defined by CRYPT_RSA_SaltLenType or actual value. */
+    CRYPT_MD_AlgId mdId; /**< mdid when pss padding. */
     CRYPT_MD_AlgId mgfId; /**< mgfid when pss padding. */
 } CRYPT_RSA_PssPara;
 
-typedef struct {
-    CRYPT_MD_AlgId mdId;  /**< mdid when oaep padding */
-    CRYPT_MD_AlgId mgfId; /**< mgfid when oaep padding */
-} CRYPT_RSA_OaepPara;
-
 typedef enum {
-    CRYPT_RSA_BLINDING = 0x00000001,            /**< Enable the RSA blinding function for signature. */
+    CRYPT_RSA_BLINDING = 0x00000001, /**< Enable the RSA blinding function for signature. */
+    CRYPT_RSA_BSSA = 0x00000002, /**< The signature process is rsa blind signature. */
     CRYPT_RSA_MAXFLAG
 } CRYPT_RSA_Flag;
+
+typedef enum {
+    CRYPT_DH_NO_PADZERO = 0x00000001, /**< Follow the standard RFC 5246, remove the prefix-0 when cal the
+                                           shared key. It takes effect only after local settings are made. */
+    CRYPT_DH_MAXFLAG
+} CRYPT_DH_Flag;
 
 /**
  * @ingroup crypt_types
@@ -86,14 +104,14 @@ typedef enum {
  * RSA private key parameter structure
  */
 typedef struct {
-    uint8_t *d;  /**< RSA private key parameter marked as d. */
-    uint8_t *n;  /**< RSA private key parameter marked as n. */
-    uint8_t *p;  /**< RSA private key parameter marked as p. */
-    uint8_t *q;  /**< RSA private key parameter marked as q. */
+    uint8_t *d; /**< RSA private key parameter marked as d. */
+    uint8_t *n; /**< RSA private key parameter marked as n. */
+    uint8_t *p; /**< RSA private key parameter marked as p. */
+    uint8_t *q; /**< RSA private key parameter marked as q. */
     uint8_t *dP; /**< RSA private key parameter marked as dP. */
     uint8_t *dQ; /**< RSA private key parameter marked as dQ. */
     uint8_t *qInv; /**< RSA private key parameter marked as qInv. */
-    uint8_t *e;    /**< RSA public key parameter marked as e. */
+    uint8_t *e; /**< RSA public key parameter marked as e. */
     uint32_t dLen; /**< Length of the RSA private key parameter marked as d. */
     uint32_t nLen; /**< Length of the RSA private key parameter marked as n. */
     uint32_t pLen; /**< Length of the RSA private key parameter marked as p. */
@@ -141,6 +159,81 @@ typedef struct {
     uint32_t muLen; /**< Length of the Paillier private key parameter marked as mu */
     uint32_t n2Len; /**< Length of the Paillier private key parameter marked as n2 */
 } CRYPT_PaillierPrv;
+
+typedef struct {
+    /* Initialization parameters of the noise source */
+    void *para;
+    /* Noise Source Initialization Interface */
+    void *(*init)(void *para);
+    /* Noise source read interface,can't be NULL */
+    int32_t (*read)(void *ctx, uint32_t timeout, uint8_t *buf, uint32_t bufLen);
+    /* Noise Source Deinitialization Interface */
+    void (*deinit)(void *ctx);
+} CRYPT_EAL_NsMethod;
+
+typedef struct {
+    /* Repetition Count Test: the cutoff value C */
+    uint32_t rctCutoff;
+    /* Adaptive Proportion Test: the cutoff value C */
+    uint32_t aptCutoff;
+    /* Adaptive Proportion Test: the window size W
+     * see nist.sp.800-90b section 4.4.2
+     * The window size W is selected based on the alphabet size, and shall be assigned to 1024
+     * if the noise source is binary (that is, the noise source produces only two distinct values) and 512 if
+     * the noise source is not binary (that is, the noise source produces more than two distinct values).
+     */
+    uint32_t aptWinSize;
+} CRYPT_EAL_NsTestPara;
+
+typedef struct {
+    /* Noise source name, which must be unique. */
+    const char *name;
+    /* Whether the noise source automatically performs the health test */
+    bool autoTest;
+    /* Minimum entropy, that is, the number of bits of entropy for a byte */
+    uint32_t minEntropy;
+    CRYPT_EAL_NsMethod nsMeth;
+    CRYPT_EAL_NsTestPara nsPara;
+} CRYPT_EAL_NsPara;
+
+/**
+  * @ingroup crypt_types
+  * @brief Entropy source callback for obtaining entropy data.
+  *
+  * @param ctx [IN] the entropy source handle.
+  * @param buf [OUT] buffer.
+  * @param bufLen [IN] the length of buffer.
+  * @return 0, success
+  *         Other error codes
+  */
+typedef uint32_t (*CRYPT_EAL_EntropyGet)(void *ctx, uint8_t *buf, uint32_t bufLen);
+
+typedef struct {
+    /* Whether Physical Entropy Source. */
+    bool isPhysical;
+    /* minimum entropy, (0, 8]. */
+    uint32_t minEntropy;
+    /* entropy source handle */
+    void *entropyCtx;
+    CRYPT_EAL_EntropyGet entropyGet;
+} CRYPT_EAL_EsPara;
+
+
+/**
+ * @ingroup crypt_types
+ *
+ * ElGamal private key parameter structure
+ */
+typedef struct {
+    uint8_t *p; /**< ElGamal private key parameter marked as p */
+    uint8_t *g; /**< ElGamal private key parameter marked as g */
+    uint8_t *x; /**< ElGamal private key parameter marked as x */
+
+    uint32_t pLen; /**< Length of the ElGamal private key parameter marked as p */
+    uint32_t gLen; /**< Length of the ElGamal private key parameter marked as g */
+    uint32_t xLen; /**< Length of the ElGamal private key parameter marked as x */
+
+} CRYPT_ElGamalPrv;
 
 /**
  * @ingroup crypt_types
@@ -194,11 +287,25 @@ typedef CRYPT_Data CRYPT_Curve25519Prv;
 /**
  * @ingroup crypt_types
  *
+ * kem decaps key parameter structure
+ */
+typedef CRYPT_Data CRYPT_KemDecapsKey;
+
+/**
+ * @ingroup crypt_types
+ *
+ * MLDSA private key parameter structure
+ */
+typedef CRYPT_Data CRYPT_MlDsaPrv;
+
+/**
+ * @ingroup crypt_types
+ *
  * RSA public key parameter structure
  */
 typedef struct {
-    uint8_t *e;  /**< RSA public key parameter marked as e */
-    uint8_t *n;  /**< RSA public key parameter marked as n */
+    uint8_t *e; /**< RSA public key parameter marked as e */
+    uint8_t *n; /**< RSA public key parameter marked as n */
     uint32_t eLen; /**< Length of the RSA public key parameter marked as e*/
     uint32_t nLen; /**< Length of the RSA public key parameter marked as e*/
 } CRYPT_RsaPub;
@@ -209,13 +316,48 @@ typedef struct {
  * Paillier public key parameter structure
  */
 typedef struct {
-    uint8_t *n;  /**< Paillier public key parameter marked as n */
-    uint8_t *g;  /**< Paillier public key parameter marked as g */
+    uint8_t *n; /**< Paillier public key parameter marked as n */
+    uint8_t *g; /**< Paillier public key parameter marked as g */
     uint8_t *n2; /**< Paillier public key parameter marked as n2 */
     uint32_t nLen; /**< Length of the Paillier public key parameter marked as n */
     uint32_t gLen; /**< Length of the Paillier public key parameter marked as g */
     uint32_t n2Len; /**< Length of the Paillier public key parameter marked as n2 */
 } CRYPT_PaillierPub;
+
+
+/**
+ * @brief SLH-DSA public key structure
+ */
+typedef struct {
+    uint8_t *seed; // Seed for generating keys
+    uint8_t *root; // Root node of the top XMSS tree
+    uint32_t len; // key length
+} CRYPT_SlhDsaPub;
+
+/**
+ * @brief SLH-DSA private key structure
+ */
+typedef struct {
+    uint8_t *seed; // Seed for generating keys
+    uint8_t *prf; // To generate randomization value
+    CRYPT_SlhDsaPub pub; // pubkey
+} CRYPT_SlhDsaPrv;
+
+/**
+ * @ingroup crypt_types
+ *
+ * ElGamal public key parameter structure
+ */
+typedef struct {
+    uint8_t *p; /**< ElGamal public key parameter marked as p */
+    uint8_t *g; /**< ElGamal public key parameter marked as g */
+    uint8_t *y; /**< ElGamal public key parameter marked as y */
+    uint8_t *q; /**< ElGamal public key parameter marked as q */
+    uint32_t pLen; /**< Length of the ElGamal public key parameter marked as p */
+    uint32_t gLen; /**< Length of the ElGamal public key parameter marked as g */
+    uint32_t yLen; /**< Length of the ElGamal public key parameter marked as y */
+    uint32_t qLen; /**< Length of the ElGamal public key parameter marked as q */
+} CRYPT_ElGamalPub;
 
 /**
  * @ingroup crypt_types
@@ -269,12 +411,26 @@ typedef CRYPT_Data CRYPT_Curve25519Pub;
 /**
  * @ingroup crypt_types
  *
+ * kem encaps key parameter structure
+ */
+typedef CRYPT_Data CRYPT_KemEncapsKey;
+
+/**
+ * @ingroup crypt_types
+ *
+ * MLDSA public key parameter structure
+ */
+typedef CRYPT_Data CRYPT_MlDsaPub;
+
+/**
+ * @ingroup crypt_types
+ *
  * Para structure of the RSA algorithm
  */
 typedef struct {   /**< This parameter cannot be NULL and is determined by the underlying structure. */
     uint8_t *e;    /**< Para Parameter e */
     uint32_t eLen; /**< Length of para e*/
-    uint32_t bits; /**< Bits of para */
+    uint32_t bits; /**< Bits of para, FIPS 186-5 dose not support generation and use of keys with odd bits. */
 } CRYPT_RsaPara;
 
 /**
@@ -321,16 +477,18 @@ typedef struct {
 /**
  * @ingroup crypt_types
  *
- *     Metohd structure of the RAND registration interface, including the entropy source obtaining and clearing
- * interface and random number obtaining and clearing interface.
- *     For details about how to use the default entropy source of the HiTLS, see CRYPT_EAL_RandInit().
- *     If the default mode is not used, the entropy source obtaining interface cannot be null, interface for
- * obtaining random numbers can be null.
+ * Para structure of the ElGamal algorithm
  */
 typedef struct {
-    /**
-     * @ingroup crypt_types
-     *
+    uint8_t *q; /**< Parameter q. */
+    uint32_t qLen; /**< Length of parameter q. */
+    uint32_t bits; /**< Bits of para. */
+    uint32_t k_bits; /**< Bits of q. */
+} CRYPT_ElGamalPara;
+
+/**
+ * @ingroup crypt_types
+ *
      * Obtain the entropy source. If the default entropy source provided by HiTLS is not used,
      * the API must be registered. the output data must meet requirements such as the length.
      * The HiTLS does not check the entropy source. The data must be provided by the entropy source.
@@ -342,7 +500,7 @@ typedef struct {
      * @param lenRange  [IN] Entropy source length range.
      * @retval 0 indicates success, and other values indicate failure.
      */
-int32_t (*getEntropy)(void *ctx, CRYPT_Data *entropy, uint32_t strength, CRYPT_Range *lenRange);
+typedef int32_t (*CRYPT_EAL_GetEntropyCb)(void *ctx, CRYPT_Data *entropy, uint32_t strength, CRYPT_Range *lenRange);
 
     /**
      * @ingroup crypt_types
@@ -351,7 +509,7 @@ int32_t (*getEntropy)(void *ctx, CRYPT_Data *entropy, uint32_t strength, CRYPT_R
      * @param entropy [OUT] Entropy source data
      * @retval  void
      */
-    void (*cleanEntropy)(void *ctx, CRYPT_Data *entropy);
+typedef void (*CRYPT_EAL_CleanEntropyCb)(void *ctx, CRYPT_Data *entropy);
 
     /**
      * @ingroup crypt_types
@@ -366,7 +524,7 @@ int32_t (*getEntropy)(void *ctx, CRYPT_Data *entropy, uint32_t strength, CRYPT_R
      * @param lenRange [IN] Random number length range.
      * @retval 0 indicates success, and other values indicate failure.
      */
-    int32_t (*getNonce)(void *ctx, CRYPT_Data *nonce, uint32_t strength, CRYPT_Range *lenRange);
+typedef int32_t (*CRYPT_EAL_GetNonceCb)(void *ctx, CRYPT_Data *nonce, uint32_t strength, CRYPT_Range *lenRange);
 
     /**
     * @ingroup crypt_types
@@ -375,7 +533,22 @@ int32_t (*getEntropy)(void *ctx, CRYPT_Data *entropy, uint32_t strength, CRYPT_R
     * @param nonce [OUT] random number
     * @retval void
     */
-    void (*cleanNonce)(void *ctx, CRYPT_Data *nonce);
+typedef void (*CRYPT_EAL_CleanNonceCb)(void *ctx, CRYPT_Data *nonce);
+
+/**
+ * @ingroup crypt_types
+ *
+ *     Metohd structure of the RAND registration interface, including the entropy source obtaining and clearing
+ * interface and random number obtaining and clearing interface.
+ *     For details about how to use the default entropy source of the HiTLS, see CRYPT_EAL_RandInit().
+ *     If the default mode is not used, the entropy source obtaining interface cannot be null, interface for
+ * obtaining random numbers can be null.
+ */
+typedef struct {
+    CRYPT_EAL_GetEntropyCb getEntropy;
+    CRYPT_EAL_CleanEntropyCb cleanEntropy;
+    CRYPT_EAL_GetNonceCb getNonce;
+    CRYPT_EAL_CleanNonceCb cleanNonce;
 } CRYPT_RandSeedMethod;
 
 /**
@@ -399,9 +572,9 @@ typedef enum {
     CRYPT_CTRL_SET_FEEDBACKSIZE,  /**< Setting the ciphertext feedback length in CFB mode. */
     CRYPT_CTRL_GET_FEEDBACKSIZE,  /**< Obtaining the ciphertext feedback length in CFB mode. */
     CRYPT_CTRL_DES_NOKEYCHECK,    /**< DES does not verify the key. */
-    CRYPT_CTRL_RC2_SETEFFLEN,     /**< RC2 Change the valid length of the key. */
-    CRYPT_CTRL_SET_SM4_CONSTTIME, /**< SM4 selects the side channel security implementation, which reduces
-                                       the performance. Valid only when ARM assembly implementation is enabled. */
+    CRYPT_CTRL_SET_PADDING,       /**< Set the padding mode of the algorithm. */
+    CRYPT_CTRL_GET_PADDING,       /**< Obtain the padding mode of thealgorithm. */
+    CRYPT_CTRL_REINIT_STATUS,     /**< Reinitialize the status of the algorithm. */
     CRYPT_CTRL_MAX
 } CRYPT_CipherCtrl;
 
@@ -411,46 +584,138 @@ typedef enum {
  * Set and obtain internal parameters of pkey.
  */
 typedef enum {
-    CRYPT_CTRL_SET_ED25519_HASH_METHOD, /**< ED25519 Set the hash method. */
-    CRYPT_CTRL_SET_RSA_EMSA_PKCSV15,    /**< RSA set the signature padding mode to EMSA_PKCSV15. */
-    CRYPT_CTRL_SET_RSA_EMSA_PSS,        /**< RSA set the signature padding mode to EMSA_PSS. */
-    CRYPT_CTRL_SET_RSA_SALT,            /**< When the RSA algorithm is used for PSS signature, the salt data is
+    // common
+    CRYPT_CTRL_UP_REFERENCES = 0,        /**< The reference count value increases automatically.
+                                             It is applicable to asymmetric algorithms such as 25519, RSA, and ECC. */
+    CRYPT_CTRL_SET_PARA_BY_ID,           /* Asymmetric cipher set para by id. */
+    CRYPT_CTRL_SET_NO_PADDING,           /**< RSA Set the padding mode to NO_PADDING. */
+
+    CRYPT_CTRL_GET_PARA,                 /* Asymmetric cipher get para. */
+    CRYPT_CTRL_GET_PARAID,               /* Asymmetric cipher get id of para. */
+    CRYPT_CTRL_GET_BITS,                 /* Asymmetric cipher get bits . */
+    CRYPT_CTRL_GET_SIGNLEN,              /* Asymmetric cipher get signlen . */
+    CRYPT_CTRL_GET_SECBITS,              /* Asymmetric cipher get secure bits . */
+    CRYPT_CTRL_GET_SHARED_KEY_LEN,       /**< Get the shared key length */
+    CRYPT_CTRL_GET_PUBKEY_LEN,           /**< Get the encapsulation key length */
+    CRYPT_CTRL_GET_PRVKEY_LEN,           /**< Get the decapsulation key length */
+    CRYPT_CTRL_GET_CIPHERTEXT_LEN,       /**< Get the ciphertext length */
+    CRYPT_CTRL_SET_DETERMINISTIC_FLAG,   /**< Whether to use deterministic signatures */
+    CRYPT_CTRL_SET_CTX_INFO,             /**< Set the context string. */
+    CRYPT_CTRL_SET_PREHASH_FLAG,         /**< Change the SLH-DSA or ML-DSA mode to prehash version or pure version. */
+    CRYPT_CTRL_GEN_PARA,                 /**< Asymmetric cipher generate para. */
+    CRYPT_CTRL_SET_GEN_FLAG,             /**< Set SP800-56Ar3 generate private key flag. */
+
+    // dh
+    CRYPT_CTRL_SET_DH_FLAG = 150,          /**< Set the dh flag.*/
+
+    // rsa
+    CRYPT_CTRL_SET_RSA_EMSA_PKCSV15 = 200, /**< RSA set the signature padding mode to EMSA_PKCSV15. */
+    CRYPT_CTRL_GET_RSA_SALT,            /**< Obtain the salt length of the RSA algorithm. */
+    CRYPT_CTRL_SET_RSA_EMSA_PSS,         /**< RSA set the signature padding mode to EMSA_PSS. */
+    CRYPT_CTRL_SET_RSA_SALT,             /**< When the RSA algorithm is used for PSS signature, the salt data is
                                              specified. During signature, the user data address is directly saved
                                              to the key. And the user data is used for the next signature, the caller
                                              must ensure that the next signature is called within the life cycle
                                              of the salt data. This option is not recommended and is used only for
                                              KAT and self-verification. */
-    CRYPT_CTRL_SET_ECC_POINT_FORMAT,    /**< ECC PKEY set the point format. For the point format,
-                                             see CRYPT_PKEY_PointFormat. */
-    CRYPT_CTRL_GET_RSA_SALT,            /**< Obtain the salt length of the RSA algorithm. */
-    CRYPT_CTRL_GET_RSA_PADDING,         /**< Obtain the padding mode of the RSA algorithm. */
     CRYPT_CTRL_SET_RSA_PADDING,         /**< Set the padding mode of the RSA algorithm. */
-    CRYPT_CTRL_GET_RSA_MD,              /**< Obtain the MD algorithm of the RSA algorithm. */
-    CRYPT_CTRL_GET_RSA_MGF,             /**< Obtain the mgf algorithm when the RSA algorithm padding mode
-                                             is PSS. */
-    CRYPT_CTRL_SET_ECC_USE_COFACTOR_MODE, /**< Indicates whether to use the cofactor mode to prevent
-                                               man-in-the-middle from tampering with the public key.
-                                               Set this parameter to 1 when used or 0 when not used. */
     CRYPT_CTRL_SET_RSA_RSAES_OAEP,      /**< RSA set the padding mode to RSAES_OAEP. */
     CRYPT_CTRL_SET_RSA_OAEP_LABEL,      /**< RSA oaep padding and setting labels, used to generate hash values. */
     CRYPT_CTRL_SET_RSA_FLAG,            /**< RSA set the flag. */
-    CRYPT_CTRL_CLR_RSA_FLAG,            /**< RSA clear the flag. */
     CRYPT_CTRL_SET_RSA_RSAES_PKCSV15,   /**< RSA Set the encryption/decryption padding mode to RSAES_PKCSV15. */
-    CRYPT_CTRL_SET_SM9_HASH_METHOD,     /**< SM9 Set the hash method. */
-    CRYPT_CTRL_SET_SM2_USER_ID,
-    CRYPT_CTRL_SET_SM2_HASH_METHOD,     /* SM2 calculate the hash value by set SM3. */
+    CRYPT_CTRL_SET_RSA_RSAES_PKCSV15_TLS, /**< RSA Set the encryption/decryption padding mode to RSAES_PKCSV15_TLS. */
+    CRYPT_CTRL_GET_RSA_SALTLEN,         /**< Obtain the real salt len in pss mode. The salt len can be set to -1, -2, -3
+                                             in sign or verify, which needs additional conversion during encoding.
+                                             If salt len = -3, the max salt len will be returned. */
+    CRYPT_CTRL_GET_RSA_PADDING,         /**< Obtain the padding mode of the RSA algorithm. */
+    CRYPT_CTRL_GET_RSA_MD,              /**< Obtain the MD algorithm of the RSA algorithm. */
+    CRYPT_CTRL_GET_RSA_MGF,             /**< Obtain the mgf algorithm when the RSA algorithm padding mode is PSS. */
+    CRYPT_CTRL_CLR_RSA_FLAG,            /**< RSA clear the flag. */
+    CRYPT_CTRL_SET_RSA_BSSA_FACTOR_R,   /**< Set the random bytes for RSA-BSSA. */
+
+    // ecc
+    CRYPT_CTRL_SET_SM2_USER_ID = 300,
     CRYPT_CTRL_SET_SM2_SERVER,          /* SM2 set the user status. */
-    CRYPT_CTRL_GENE_SM2_R,              /* SM2 obtain the R value. */
     CRYPT_CTRL_SET_SM2_R,               /* SM2 set the R value. */
     CRYPT_CTRL_SET_SM2_RANDOM,          /* SM2 set the r value. */
     CRYPT_CTRL_SET_SM2_PKG,             /* SM2 uses the PKG process. */
-    CRYPT_CTRL_SM2_GET_SEND_CHECK,      /* SM2 obtain the check value sent from the local end to the peer end. */
-    CRYPT_CTRL_SM2_DO_CHECK,            /* SM2 check the shared key. */
+    CRYPT_CTRL_SET_SM2_K,               /* SM2 set the K value. */
 
-    CRYPT_CTRL_UP_REFERENCES,           /**< The reference count value increases automatically.
-                                             It is applicable to asymmetric algorithms such as 25519, RSA, and ECC. */
-    CRYPT_CTRL_GEN_ECC_PUBLICKEY,       /**< Use prikey genarate pubkey. */
+    CRYPT_CTRL_SET_ECC_POINT_FORMAT,      /**< ECC PKEY set the point format. For the point format,
+                                             see CRYPT_PKEY_PointFormat. */
+    CRYPT_CTRL_SET_ECC_USE_COFACTOR_MODE, /**< Indicates whether to use the cofactor mode to prevent
+                                               man-in-the-middle from tampering with the public key.
+                                               Set this parameter to 1 when used or 0 when not used. */
+
+    CRYPT_CTRL_GET_SM2_SEND_CHECK,      /* SM2 obtain the check value sent from the local end to the peer end. */
+    CRYPT_CTRL_GENE_SM2_R,              /* SM2 obtain the R value. */
+
+    CRYPT_CTRL_SM2_DO_CHECK,            /* SM2 check the shared key. */
+    CRYPT_CTRL_GEN_ECC_PUBLICKEY,       /**< Use prikey generate pubkey. */
+	CRYPT_CTRL_GET_ECC_PUB_X_BIN,       /**< Get the bn of x of the ecc public key without padded bin. */
+    CRYPT_CTRL_GET_ECC_PUB_Y_BIN,       /**< Get the bn of y of the ecc public key without padded bin. */
+    CRYPT_CTRL_GET_ECC_ORDER_BITS,      /**< Get the number of bits in the group order. */
+    CRYPT_CTRL_GET_ECC_NAME,            /**< Obtain the name of the ECC curve. */
+    CRYPT_CTRL_GEN_X25519_PUBLICKEY,    /**< Use prikey genarate x25519 pubkey. */
+
+    // slh-dsa
+    CRYPT_CTRL_GET_SLH_DSA_KEY_LEN = 600,     /**< Get the SLH-DSA key length. */
+    CRYPT_CTRL_SET_SLH_DSA_ADDRAND, /**< Set the SLH-DSA additional random bytes. */
+
+	CRYPT_CTRL_SET_MLDSA_ENCODE_FLAG = 700,  /**< Set the flag for encode messages. */
+    CRYPT_CTRL_SET_MLDSA_MUMSG_FLAG,         /**< Whether to calculate message representative */
 } CRYPT_PkeyCtrl;
+
+
+#define CRYPT_KEYMGMT_SELECT_PRIVATE_KEY 0x01
+#define CRYPT_KEYMGMT_SELECT_PUBLIC_KEY  0x02
+#define CRYPT_KEYMGMT_SELECT_PARAMETER   0x04
+#define CRYPT_KEYMGMT_SELECT_UNKNOWN     0x08
+#define CRYPT_KEYMGMT_SELECT_KEY_PAIR    (CRYPT_KEYMGMT_SELECT_PRIVATE_KEY | CRYPT_KEYMGMT_SELECT_PUBLIC_KEY)
+#define CRYPT_KEYMGMT_SELECT_ALL         (CRYPT_KEYMGMT_SELECT_PRIVATE_KEY | CRYPT_KEYMGMT_SELECT_PUBLIC_KEY | \
+                                          CRYPT_KEYMGMT_SELECT_PARAMETER)
+typedef enum {
+    CRYPT_CTRL_SET_GM_LEVEL,    /**<  Set the authentication level of gm drbg */
+    CRYPT_CTRL_SET_RESEED_INTERVAL,
+    CRYPT_CTRL_SET_RESEED_TIME,
+    CRYPT_CTRL_RAND_MAX = 0xff,
+} CRYPT_RandCtrl;
+
+/**
+ * @ingroup crypt_ctrl_param
+ *
+ * Set and obtain internal parameters of mac.
+ */
+typedef enum {
+    CRYPT_CTRL_SET_CBC_MAC_PADDING = 0, /**< set cbc-mac padding type */
+    CRYPT_CTRL_GET_MACLEN,              /* Mac get maxlen . */
+    CRYPT_CTRL_MAC_MAX
+} CRYPT_MacCtrl;
+
+/**
+ * @ingroup crypt_entropy_type
+ *
+ * Entropy setting type.
+ */
+typedef enum {
+    CRYPT_ENTROPY_SET_POOL_SIZE = 0,      /**< Sets the EntropyPool size. */
+    CRYPT_ENTROPY_SET_CF,                 /**< Sets the EntropyPool conditioning function. */
+    CRYPT_ENTROPY_ADD_NS,                 /**< Adding a Noise Source. */
+    CRYPT_ENTROPY_REMOVE_NS,              /**< Deleting a Noise Source. */
+    CRYPT_ENTROPY_ENABLE_TEST,            /**< Sets the Health Test. */
+    CRYPT_ENTROPY_GET_STATE,              /**< Gets the entropy source state. */
+    CRYPT_ENTROPY_GET_POOL_SIZE,          /**< Gets the entropy pool size. */
+    CRYPT_ENTROPY_POOL_GET_CURRSIZE,      /**< Gets the entropy pool current size. */
+    CRYPT_ENTROPY_GET_CF_SIZE,            /**< Gets the cf size. */
+    CRYPT_ENTROPY_GATHER_ENTROPY,         /**< Entropy source collection option. This option collects the original
+                                               entropy data from each noise source, obtains the full entropy output
+                                               after adjustment by the conditioning function, and stores the full
+                                               entropy output in the entropy pool. The length of the entropy output
+                                               obtained each time is the output length of the adjustment function.
+                                               The caller can use this interface to implement the automatic collection
+                                               function of the entropy pool. */
+    CRYPT_ENTROPY_MAX
+} CRYPT_ENTROPY_TYPE;
 
 /**
  * @ingroup crypt_padding_type
@@ -468,12 +733,14 @@ typedef enum {
 } CRYPT_PaddingType;
 
 typedef enum {
-    CRYPT_PKEY_EMSA_PKCSV15 = 1, /**< PKCS1-v1_5 according to RFC8017. */
-    CRYPT_PKEY_EMSA_PSS,         /**< PSS according to RFC8017. */
-    CRYPT_PKEY_RSAES_OAEP,       /**< OAEP according to RFC8017. */
-    CRYPT_PKEY_RSAES_PKCSV15,    /**< RSAES_PKCSV15 according to RFC8017. */
-    CRYPT_PKEY_RSA_NO_PAD,
-    CRYPT_PKEY_RSA_PADDINGMAX,
+    CRYPT_EMSA_PKCSV15 = 1, /**< PKCS1-v1_5 according to RFC8017. */
+    CRYPT_EMSA_PSS,         /**< PSS according to RFC8017. */
+    CRYPT_RSAES_OAEP,       /**< OAEP according to RFC8017. */
+    CRYPT_RSAES_PKCSV15,    /**< RSAES_PKCSV15 according to RFC8017. */
+    CRYPT_RSA_NO_PAD,
+    CRYPT_RSAES_PKCSV15_TLS, /* Specific RSA pkcs1.5 padding verification process to
+                                prevent possible Bleichenbacher attacks */
+    CRYPT_RSA_PADDINGMAX,
 } CRYPT_RsaPadType;
 
 /**
@@ -489,6 +756,7 @@ typedef enum {
     CRYPT_EVENT_VERIFY,       /**< Verify the signature. */
     CRYPT_EVENT_MD,           /**< Hash. */
     CRYPT_EVENT_MAC,          /**< MAC. */
+    CRYPT_EVENT_KDF,          /**< KDF. */
     CRYPT_EVENT_KEYAGGREMENT, /**< Key negotiation. */
     CRYPT_EVENT_KEYDERIVE,    /**< Derived key. */
     CRYPT_EVENT_RANDGEN,      /**< Generating a random number. */
@@ -496,6 +764,10 @@ typedef enum {
     CRYPT_EVENT_ERR,          /**< An error occurred. */
     CRYPT_EVENT_SETSSP,       /**< Adding and Modifying Password Data and SSP. */
     CRYPT_EVENT_GETSSP,       /**< Access password data and SSP. */
+    CRYPT_EVENT_ENCAPS,       /**< Key encapsulation. */
+    CRYPT_EVENT_DECAPS,       /**< Key decapsulation. */
+    CRYPT_EVENT_BLIND,        /**< Message blinding. */
+    CRYPT_EVENT_UNBLIND,      /**< Signature unblinding. */
     CRYPT_EVENT_MAX
 } CRYPT_EVENT_TYPE;
 
@@ -554,6 +826,78 @@ typedef enum {
     CRYPT_INFO_BLOCK_LEN,            /**< Algorithm block length. */
     CRYPT_INFO_MAX
 } CRYPT_INFO_TYPE;
+
+typedef enum {
+    CRYPT_KDF_HKDF_MODE_FULL = 0,
+    CRYPT_KDF_HKDF_MODE_EXTRACT,
+    CRYPT_KDF_HKDF_MODE_EXPAND,
+} CRYPT_HKDF_MODE;
+
+typedef enum {
+    CRYPT_ENCDEC_UNKNOW,
+    CRYPT_PRIKEY_PKCS8_UNENCRYPT,
+    CRYPT_PRIKEY_PKCS8_ENCRYPT,
+    CRYPT_PRIKEY_RSA,
+    CRYPT_PRIKEY_ECC,
+    CRYPT_PUBKEY_SUBKEY,
+    CRYPT_PUBKEY_RSA,
+    CRYPT_PUBKEY_SUBKEY_WITHOUT_SEQ
+} CRYPT_ENCDEC_TYPE;
+
+typedef enum {
+    CRYPT_DERIVE_PBKDF2,
+} CRYPT_DERIVE_MODE;
+
+typedef struct {
+    uint32_t deriveMode;
+    void *param;
+} CRYPT_EncodeParam;
+
+typedef struct {
+    uint32_t pbesId;
+    uint32_t pbkdfId;
+    uint32_t hmacId;
+    uint32_t symId;
+    uint32_t saltLen;
+    uint8_t *pwd;
+    uint32_t pwdLen;
+    uint32_t itCnt;
+} CRYPT_Pbkdf2Param;
+
+typedef struct EAL_LibCtx CRYPT_EAL_LibCtx;
+
+/* Optional parameter set for MLDSA */
+typedef enum {
+    CRYPT_MLDSA_TYPE_MLDSA_44 = 0x01,            // MLDSA-44
+    CRYPT_MLDSA_TYPE_MLDSA_65 = 0x02,            // MLDSA-65
+    CRYPT_MLDSA_TYPE_MLDSA_87 = 0x03,            // MLDSA-87
+    CRYPT_MLDSA_TYPE_INVALID = 0x7fffffff        // invalid value
+} CRYPT_MLDSA_KeyType;
+
+/* Optional parameter set for MLKEM */
+typedef enum {
+    CRYPT_KEM_TYPE_MLKEM_512 = 0x01,            // MLKEM512
+    CRYPT_KEM_TYPE_MLKEM_768 = 0x02,            // MLKEM768
+    CRYPT_KEM_TYPE_MLKEM_1024 = 0x03,            // MLKEM1024
+    CRYPT_KEM_TYPE_INVALID = 0x7fffffff        // invalid value
+} CRYPT_MLKEM_KeyType;
+
+/* Optional parameter set for SLHDSA */
+typedef enum {
+    CRYPT_SLH_DSA_SHA2_128S,
+    CRYPT_SLH_DSA_SHAKE_128S,
+    CRYPT_SLH_DSA_SHA2_128F,
+    CRYPT_SLH_DSA_SHAKE_128F,
+    CRYPT_SLH_DSA_SHA2_192S,
+    CRYPT_SLH_DSA_SHAKE_192S,
+    CRYPT_SLH_DSA_SHA2_192F,
+    CRYPT_SLH_DSA_SHAKE_192F,
+    CRYPT_SLH_DSA_SHA2_256S,
+    CRYPT_SLH_DSA_SHAKE_256S,
+    CRYPT_SLH_DSA_SHA2_256F,
+    CRYPT_SLH_DSA_SHAKE_256F,
+    CRYPT_SLH_DSA_ALG_ID_MAX,
+} CRYPT_SLH_DSA_AlgId;
 
 #ifdef __cplusplus
 }

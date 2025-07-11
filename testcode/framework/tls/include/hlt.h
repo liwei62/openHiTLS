@@ -23,6 +23,8 @@
 extern "C" {
 #endif
 
+void HLT_ConfigTimeOut(const char* timeout);
+void HLT_UnsetTimeOut();
 
 // Create a process
 HLT_Process* InitSrcProcess(TLS_TYPE tlsType, char* srcDomainPath);
@@ -45,13 +47,20 @@ void HLT_CloseFd(int fd, int linkType);
 int HLT_SetVersion(HLT_Ctx_Config* ctxConfig, uint16_t minVersion, uint16_t maxVersion);
 int HLT_SetSecurityLevel(HLT_Ctx_Config *ctxConfig, int32_t level);
 int HLT_SetRenegotiationSupport(HLT_Ctx_Config* ctxConfig, bool support);
-int HLT_SetNoSecRenegotiationCb(HLT_Ctx_Config *ctxConfig, char* NoSecRenegotiationCb);
+int HLT_SetLegacyRenegotiateSupport(HLT_Ctx_Config* ctxConfig, bool support);
+int HLT_SetClientRenegotiateSupport(HLT_Ctx_Config* ctxConfig, bool support);
+int HLT_SetEmptyRecordsNum(HLT_Ctx_Config *ctxConfig, uint32_t emptyNum);
 int HLT_SetFlightTransmitSwitch(HLT_Ctx_Config *ctxConfig, bool support);
 int HLT_SetClientVerifySupport(HLT_Ctx_Config* ctxConfig, bool support);
 int HLT_SetNoClientCertSupport(HLT_Ctx_Config* ctxConfig, bool support);
 int HLT_SetPostHandshakeAuth(HLT_Ctx_Config *ctxConfig, bool support);
 int HLT_SetExtenedMasterSecretSupport(HLT_Ctx_Config* ctxConfig, bool support);
+int HLT_SetEncryptThenMac(HLT_Ctx_Config *ctxConfig, int support);
+int HLT_SetModeSupport(HLT_Ctx_Config *ctxConfig, uint32_t mode);
 int HLT_SetCipherSuites(HLT_Ctx_Config* ctxConfig, const char* cipherSuites);
+int HLT_SetProviderPath(HLT_Ctx_Config *ctxConfig, char *providerPath);
+int HLT_SetProviderAttrName(HLT_Ctx_Config *ctxConfig, char *attrName);
+int HLT_AddProviderInfo(HLT_Ctx_Config *ctxConfig, char *providerName, int providerLibFmt);
 int HLT_SetTls13CipherSuites(HLT_Ctx_Config *ctxConfig, const char *cipherSuites);
 int HLT_SetEcPointFormats(HLT_Ctx_Config* ctxConfig, const char* pointFormat);
 int HLT_SetGroups(HLT_Ctx_Config* ctxConfig, const char* groups);
@@ -79,7 +88,8 @@ int HLT_SetAlpnProtosSelectCb(HLT_Ctx_Config *ctxConfig, char *callback, char *u
 int HLT_SetFrameHandle(HLT_FrameHandle *frameHandle);
 void HLT_CleanFrameHandle(void);
 int HLT_FreeResFromSsl(const void *ssl);
-
+int HLT_SetClientHelloCb(HLT_Ctx_Config *ctxConfig, HITLS_ClientHelloCb callback, void *arg);
+int HLT_SetCertCb(HLT_Ctx_Config *ctxConfig, HITLS_CertCb certCb, void *arg);
 // General initialization interface
 int HLT_LibraryInit(TLS_TYPE tlsType);
 
@@ -87,6 +97,8 @@ int HLT_LibraryInit(TLS_TYPE tlsType);
 HLT_Tls_Res* HLT_ProcessTlsInit(HLT_Process *process, TLS_VERSION tlsVersion,
     HLT_Ctx_Config *ctxConfig, HLT_Ssl_Config *sslConfig);
 void* HLT_TlsNewCtx(TLS_VERSION tlsVersion);
+void* HLT_TlsProviderNewCtx(char *providerPath, char (*providerNames)[MAX_PROVIDER_NAME_LEN], int *providerLibFmts,
+    int providerCnt, char *attrName, TLS_VERSION tlsVersion);
 HLT_Ctx_Config* HLT_NewCtxConfig(char* setFile, const char* key);
 HLT_Ctx_Config* HLT_NewCtxConfigTLCP(char *setFile, const char *key, bool isClient);
 int HLT_TlsSetCtx(void* ctx, HLT_Ctx_Config* config);
@@ -117,6 +129,8 @@ void HLT_TlsFreeSession(void *session);
 
 // The RPC controls the remote process to invoke TLS functions
 int HLT_RpcTlsNewCtx(HLT_Process* peerProcess, TLS_VERSION tlsVersion, bool isClient);
+int HLT_RpcProviderTlsNewCtx(HLT_Process *peerProcess, TLS_VERSION tlsVersion, bool isClient, char *providerPath,
+    char (*providerNames)[MAX_PROVIDER_NAME_LEN], int32_t *providerLibFmts, int32_t providerCnt, char *attrName);
 int HLT_RpcTlsSetCtx(HLT_Process* peerProcess, int ctxId, HLT_Ctx_Config* config);
 int HLT_RpcTlsNewSsl(HLT_Process* peerProcess, int ctxId);
 int HLT_RpcTlsSetSsl(HLT_Process* peerProcess, int sslId, HLT_Ssl_Config* config);

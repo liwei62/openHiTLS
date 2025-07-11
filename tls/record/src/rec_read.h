@@ -24,7 +24,7 @@
 extern "C" {
 #endif
 
-#ifndef HITLS_NO_DTLS12
+#ifdef HITLS_TLS_PROTO_DTLS12
 
 /**
  * @brief   Read a record in the DTLS protocol
@@ -52,8 +52,8 @@ int32_t DtlsRecordRead(TLS_Ctx *ctx, REC_Type recordType, uint8_t *data, uint32_
  * @param   ctx [IN] TLS context
  * @param   recordType [IN] Record type
  * @param   data [OUT] Read data
- * @param   len [OUT] Read data length
- * @param   bufSize [IN] buffer length
+ * @param   readLen [OUT] Length of the read data
+ * @param   num [IN] The read buffer has num bytes
  *
  * @retval  HITLS_SUCCESS
  * @retval  HITLS_REC_NORMAL_RECV_BUF_EMPTY needs to be read again
@@ -62,7 +62,7 @@ int32_t DtlsRecordRead(TLS_Ctx *ctx, REC_Type recordType, uint8_t *data, uint32_
  * @retval  HITLS_REC_NORMAL_RECV_UNEXPECT_MSG Unexpected message received
  *
  */
-int32_t TlsRecordRead(TLS_Ctx *ctx, REC_Type recordType, uint8_t *data, uint32_t *len, uint32_t bufSize);
+int32_t TlsRecordRead(TLS_Ctx *ctx, REC_Type recordType, uint8_t *data, uint32_t *readLen, uint32_t num);
 
 /**
  * @brief   Read data from the UIO of the TLS context to the inBuf

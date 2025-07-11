@@ -36,15 +36,16 @@ typedef enum {
 
 typedef enum {
     CRYPT_MAC_HMAC = 0,
+    CRYPT_MAC_CMAC,
+    CRYPT_MAC_CBC_MAC,
+    CRYPT_MAC_SIPHASH,
+    CRYPT_MAC_GMAC,
     CRYPT_MAC_INVALID
 } CRYPT_MAC_ID;
 
 struct EAL_MacCtx {
-    union {
-        const EAL_MacMethod *macMeth; // combined algorithm
-        const EAL_CipherMethod *modeMeth;
-        const void *masMeth;
-    };
+    bool isProvider;
+    EAL_MacUnitaryMethod *macMeth; // combined algorithm
     void *ctx;  // MAC context
     CRYPT_MAC_AlgId id;
     CRYPT_MAC_WORKSTATE state;

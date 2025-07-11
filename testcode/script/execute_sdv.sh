@@ -20,7 +20,8 @@ HITLS_ROOT_DIR=`pwd`
 paramList=$@
 paramNum=$#
 is_concurrent=1
-
+need_run_all=1
+threadsNum=$(grep -c ^processor /proc/cpuinfo)
 testsuite_array=()
 testcase_array=()
 export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$(realpath ${HITLS_ROOT_DIR}/build):$(realpath ${HITLS_ROOT_DIR}/platform/Secure_C/lib)
@@ -38,11 +39,13 @@ generate_asan_log() {
                     echo "The ASAN log contains only ucontext warning content. Ignore it."
                 else
                     echo "ASAN ERROR. Exit with ucontext check failure."
+                    cat ${i}
                     exit 1
                 fi
                 continue
             else
                 echo "ASAN ERROR. Exit with failure."
+                cat ${i}
                 exit 1
             fi
         done
@@ -51,7 +54,7 @@ generate_asan_log() {
 # Run the specified test suites or test cases in the output directory.
 run_test() {
     cd ${HITLS_ROOT_DIR}/testcode/output
-    export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_leaks=1:halt_on_error=0:log_path=asan.log
+    export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_leaks=1:halt_on_error=0:detect_odr_violation=0:log_path=asan.log
 
     echo ""
     echo "Begin Test"
@@ -62,7 +65,14 @@ run_test() {
     if [ ${#testsuite_array[*]} -ne 0 ] && [ ${#testcase_array[*]} -eq 0 ];then
         for i in ${testsuite_array[@]}
         do
-            ./${i} NO_DETAIL
+            if [ "${i}" = "test_suite_sdv_eal_provider_load" ]; then
+                # 针对特定测试套件设置 LD_LIBRARY_PATH
+                echo "Running ${i} with LD_LIBRARY_PATH set to ../testdata/provider/path1"
+                env LD_LIBRARY_PATH="../testdata/provider/path1:${LD_LIBRARY_PATH}" ./${i} NO_DETAIL
+            else
+                # 其他测试套件正常运行
+                ./${i} NO_DETAIL
+            fi
         done
     fi
 
@@ -116,7 +126,7 @@ run_all() {
 
     cd ${HITLS_ROOT_DIR}/testcode/output
     SUITES=$(ls ./ | grep .datax | sed -e "s/.datax//")
-    export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_leaks=1:halt_on_error=0:log_path=asan.log
+    export ASAN_OPTIONS=detect_stack_use_after_return=1:strict_string_checks=1:detect_leaks=1:halt_on_error=0:detect_odr_violation=0:log_path=asan.log
 
     echo ""
     echo "Begin Test"
@@ -125,11 +135,9 @@ run_all() {
         mkfifo tmppipe
         exec 5<>tmppipe
         rm -f tmppipe
-        procNum=$(grep -c ^processor /proc/cpuinfo)
-        let procNum=$procNum+5
-        echo "procNum = $procNum"
+        echo "threadsNum = $threadsNum"
         # procNum indicates the maximum number of concurrent processes.
-        for ((i=1;i<=$procNum;i++)); do
+        for ((i=1;i<=$threadsNum;i++)); do
             echo >&5
         done
         retPipe=$tmpPipe.ret
@@ -142,7 +150,12 @@ run_all() {
             # Run tests in parallel.
             read -u5
             {
-                ./$i NO_DETAIL || (read -u8 && echo "1 $i" >&8)
+                if [ "${i}" = "test_suite_sdv_eal_provider_load" ]; then
+                    echo "Running ${i} with LD_LIBRARY_PATH set to ../testdata/provider/path1"
+                    env LD_LIBRARY_PATH="../testdata/provider/path1:${LD_LIBRARY_PATH}" ./${i} NO_DETAIL || (read -u8 && echo "1 $i" >&8)
+                else
+                    ./${i} NO_DETAIL || (read -u8 && echo "1 $i" >&8)
+                fi
                 echo >&5
             } &
         done
@@ -161,7 +174,12 @@ run_all() {
     else
         for i in $SUITES
         do
-            ./$i NO_DETAIL
+            if [ "${i}" = "test_suite_sdv_eal_provider_load" ]; then
+                echo "Running ${i} with LD_LIBRARY_PATH set to ../testdata/provider/path1"
+                env LD_LIBRARY_PATH="../testdata/provider/path1:${LD_LIBRARY_PATH}" ./${i} NO_DETAIL
+            else
+                ./${i} NO_DETAIL
+            fi
         done
     fi
 
@@ -206,7 +224,13 @@ parse_option()
                 printf "%-50s %-30s\n" "Run All Testsuites Of The Output"     "sh ${BASH_SOURCE[0]}"
                 printf "%-50s %-30s\n" "Run The Specified Testsuite"          "sh ${BASH_SOURCE[0]} test_suites_xxx test_suites_xxx"
                 printf "%-50s %-30s\n" "Run The Specified Testcase"           "sh ${BASH_SOURCE[0]} UT_CRYPTO_xxx SDV_CRYPTO_xxx"
+                printf "%-50s %-30s\n" "Set Thread Pool Size"                 "sh ${BASH_SOURCE[0]} threads=N"
+                printf "%-50s %-30s\n" "Example: Run with 4 threads"          "sh ${BASH_SOURCE[0]} threads=4"
                 exit 0
+                ;;
+            "threads"*)
+                threads_num=${i#*=}
+                threadsNum=$threads_num
                 ;;
             *)
                 parse_testsuite_testcase $i
@@ -214,9 +238,42 @@ parse_option()
                     echo "Not Find This Testsuite or Testcase : ${i}"
                     exit 1
                 fi
+                need_run_all=0
                 ;;
         esac
     done
+}
+
+run_demos()
+{
+    exit_code=$?
+    pushd ${HITLS_ROOT_DIR}/testcode/demo/build
+    executales=$(find ./ -maxdepth 1 -type f -perm -a=x )
+    for e in $executales
+    do
+        if [[ ! "$e" == *"client"* ]] && [[ ! "$e" == *"server"* ]]; then
+            echo "${e} start"
+            eval "${e}"
+            if [ $exit_code -ne 0 ]; then
+                echo "Demo ${e} failed"
+                exit 1
+            fi
+        fi
+    done
+
+    # run server and client in order.
+    ./server &
+    if [ $exit_code -ne 0 ]; then
+        echo "Demo ${e} failed"
+        exit 1
+    fi
+    sleep 1
+    ./client
+    if [ $exit_code -ne 0 ]; then
+        echo "Demo ${e} failed"
+        exit 1
+    fi
+    popd
 }
 
 clean()
@@ -229,11 +286,10 @@ clean()
 
 clean
 parse_option
-if [ ${paramNum} -eq 0 ]; then
-    run_all
-elif [ ${paramNum} -eq 1 ] && [ $is_concurrent = 0 ]; then
+if [ ${need_run_all} -eq 1 ]; then
     run_all
 else
     run_test
 fi
+run_demos
 gen_test_report

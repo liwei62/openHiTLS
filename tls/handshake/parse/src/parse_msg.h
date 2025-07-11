@@ -57,6 +57,21 @@ int32_t ParseClientHello(TLS_Ctx *ctx, const uint8_t *data, uint32_t len, HS_Msg
 int32_t ParseServerHello(TLS_Ctx *ctx, const uint8_t *buf, uint32_t bufLen, HS_Msg *hsMsg);
 
 /**
+ * @brief   Parse Hello Verify Request message
+ *
+ * @param   ctx [IN] TLS context
+ * @param   buf [IN] Message buffer
+ * @param   bufLen [IN] Maximum message length
+ * @param   hsMsg [OUT] Message structure
+ *
+ * @retval  HITLS_SUCCESS
+ * @retval  HITLS_MEMALLOC_FAIL Memory allocated failed
+ * @retval  HITLS_MEMCPY_FAIL Memory copy failed
+ * @retval  HITLS_PARSE_INVALID_MSG_LEN The message length is incorrect
+ * @retval  HITLS_PARSE_DUPLICATE_EXTENDED_MSG Extension duplicated
+ */
+int32_t ParseHelloVerifyRequest(TLS_Ctx *ctx, const uint8_t *buf, uint32_t bufLen, HS_Msg *hsMsg);
+/**
  * @brief   Parse TLS 1.3 EncryptedExtensions message
  *
  * @param   ctx [IN] TLS context
@@ -213,69 +228,75 @@ int32_t ParseKeyUpdate(TLS_Ctx *ctx, const uint8_t *buf, uint32_t bufLen, HS_Msg
 int32_t ParseNewSessionTicket(TLS_Ctx *ctx, const uint8_t *buf, uint32_t bufLen, HS_Msg *hsMsg);
 
 /**
- * @brief   Clear the memory allocated in the Client Hello message structure
+ * @brief   Free the memory allocated in the Client Hello message structure
  *
  * @param   msg [IN] Message structure
  */
 void CleanClientHello(ClientHelloMsg *msg);
 
 /**
- * @brief   Clear the memory allocated in the Server Hello message structure
+ * @brief   Free the memory allocated in the Server Hello message structure
  *
  * @param   msg [IN] Message structure
  */
 void CleanServerHello(ServerHelloMsg *msg);
 
 /**
- * @brief   Clear the memory allocated in the EncryptedExtensions message structure
+ * @brief   Free the memory allocated in the Hello Verify Request message structure
+ *
+ * @param   msg [IN] Message structure
+ */
+void CleanHelloVerifyRequest(HelloVerifyRequestMsg *msg);
+/**
+ * @brief   Free the memory allocated in the EncryptedExtensions message structure
  *
  * @param   msg [IN] Message structure
  */
 void CleanEncryptedExtensions(EncryptedExtensions *msg);
 /**
- * @brief  Clear the memory allocated in the certificate message structure
+ * @brief  Free the memory allocated in the certificate message structure
  *
  * @param   msg [IN] Message structure
  */
 void CleanCertificate(CertificateMsg *msg);
 
 /**
- * @brief   Clear the memory allocated in the ServerKeyExchangeMsg message structure
+ * @brief   Free the memory allocated in the ServerKeyExchangeMsg message structure
  *
  * @param   msg [IN] Message structure
  */
 void CleanServerKeyExchange(ServerKeyExchangeMsg *msg);
 
 /**
- * @brief   Clear the memory allocated in the Certificate Request message structure
+ * @brief   Free the memory allocated in the Certificate Request message structure
  *
  * @param   msg [IN] Message structure
  */
 void CleanCertificateRequest(CertificateRequestMsg *msg);
 
 /**
- * @brief   Clear the memory allocated in the Client KeyExchange message structure
+ * @brief   Free the memory allocated in the Client KeyExchange message structure
  *
  * @param   msg [IN] Message structure
  */
 void CleanClientKeyExchange(ClientKeyExchangeMsg *msg);
 
 /**
- * @brief   Clear the memory allocated in the Certificate Verify message structure
+ * @brief   Free the memory allocated in the Certificate Verify message structure
  *
  * @param   msg [IN] Message structure
  */
 void CleanCertificateVerify(CertificateVerifyMsg *msg);
 
 /**
- * @brief   Clear the memory allocated in the NewSessionTicket message structure
+ * @brief   Free the memory allocated in the NewSessionTicket message structure
  *
  * @param   msg [IN] Message structure
  */
 void CleanNewSessionTicket(NewSessionTicketMsg *msg);
 
 /**
- * @brief   Clear the memory allocated in the Finished message structure
+ * @brief   Free the memory allocated in the Finished message structure
  *
  * @param   msg [IN] Message structure
  */

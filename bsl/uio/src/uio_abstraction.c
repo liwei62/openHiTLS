@@ -25,8 +25,6 @@
 #include "bsl_errno.h"
 #include "bsl_uio.h"
 #include "uio_base.h"
-#include "uio_sctp.h"
-#include "uio_tcp.h"
 #include "uio_abstraction.h"
 
 BSL_UIO_Method *BSL_UIO_NewMethod(void)
@@ -55,7 +53,7 @@ int32_t BSL_UIO_SetMethodType(BSL_UIO_Method *meth, int32_t type)
             "set method type is NULL.", NULL, NULL, NULL, NULL);
         return BSL_NULL_INPUT;
     }
-    meth->type = type;
+    meth->uioType = type;
     return BSL_SUCCESS;
 }
 
@@ -70,25 +68,25 @@ int32_t BSL_UIO_SetMethod(BSL_UIO_Method *meth, int32_t type, void *func)
 
     switch (type) {
         case BSL_UIO_WRITE_CB:
-            meth->write = func;
+            meth->uioWrite = func;
             break;
         case BSL_UIO_READ_CB:
-            meth->read = func;
+            meth->uioRead = func;
             break;
         case BSL_UIO_CTRL_CB:
-            meth->ctrl = func;
+            meth->uioCtrl = func;
             break;
         case BSL_UIO_CREATE_CB:
-            meth->create = func;
+            meth->uioCreate = func;
             break;
         case BSL_UIO_DESTROY_CB:
-            meth->destroy = func;
+            meth->uioDestroy = func;
             break;
         case BSL_UIO_PUTS_CB:
-            meth->puts = func;
+            meth->uioPuts = func;
             break;
         case BSL_UIO_GETS_CB:
-            meth->gets = func;
+            meth->uioGets = func;
             break;
         default:
             BSL_LOG_BINLOG_FIXLEN(BINLOG_ID05025, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
@@ -122,8 +120,8 @@ BSL_UIO *BSL_UIO_New(const BSL_UIO_Method *method)
     BSL_SAL_ReferencesInit(&(uio->references));
     BSL_UIO_SetIsUnderlyingClosedByUio(uio, false);
 
-    if (uio->method.create != NULL) {
-        ret = uio->method.create(uio);
+    if (uio->method.uioCreate != NULL) {
+        ret = uio->method.uioCreate(uio);
         if (ret != BSL_SUCCESS) {
             BSL_ERR_PUSH_ERROR(BSL_UIO_FAIL);
             BSL_LOG_BINLOG_FIXLEN(BINLOG_ID05023, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
@@ -167,8 +165,8 @@ void BSL_UIO_Free(BSL_UIO *uio)
         (void)uio->userDataFreeFunc(uio->userData);
         uio->userData = NULL;
     }
-    if (uio->method.destroy != NULL) {
-        (void)uio->method.destroy(uio);
+    if (uio->method.uioDestroy != NULL) {
+        (void)uio->method.uioDestroy(uio);
     }
     BSL_SAL_ReferencesFree(&(uio->references));
     BSL_SAL_FREE(uio);
@@ -177,7 +175,7 @@ void BSL_UIO_Free(BSL_UIO *uio)
 
 int32_t BSL_UIO_Write(BSL_UIO *uio, const void *data, uint32_t len, uint32_t *writeLen)
 {
-    if (uio == NULL || uio->method.write == NULL || data == NULL || writeLen == NULL || len == 0) {
+    if (uio == NULL || uio->method.uioWrite == NULL || data == NULL || writeLen == NULL || len == 0) {
         BSL_LOG_BINLOG_FIXLEN(BINLOG_ID05026, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
             "uio write: internal input error.", 0, 0, 0, 0);
         BSL_ERR_PUSH_ERROR(BSL_INTERNAL_EXCEPTION);
@@ -189,7 +187,7 @@ int32_t BSL_UIO_Write(BSL_UIO *uio, const void *data, uint32_t len, uint32_t *wr
         return BSL_UIO_UNINITIALIZED;
     }
 
-    int32_t ret = uio->method.write(uio, data, len, writeLen);
+    int32_t ret = uio->method.uioWrite(uio, data, len, writeLen);
     if (ret == BSL_SUCCESS) {
         uio->writeNum += (int64_t)*writeLen;
     }
@@ -199,7 +197,7 @@ int32_t BSL_UIO_Write(BSL_UIO *uio, const void *data, uint32_t len, uint32_t *wr
 
 int32_t BSL_UIO_Puts(BSL_UIO *uio, const char *buf, uint32_t *writeLen)
 {
-    if (uio == NULL || uio->method.puts == NULL || writeLen == NULL || buf == NULL) {
+    if (uio == NULL || uio->method.uioPuts == NULL || writeLen == NULL || buf == NULL) {
         BSL_ERR_PUSH_ERROR(BSL_INTERNAL_EXCEPTION);
         return BSL_INTERNAL_EXCEPTION;
     }
@@ -209,7 +207,7 @@ int32_t BSL_UIO_Puts(BSL_UIO *uio, const char *buf, uint32_t *writeLen)
         return BSL_UIO_UNINITIALIZED;
     }
 
-    int32_t ret = uio->method.puts(uio, buf, writeLen);
+    int32_t ret = uio->method.uioPuts(uio, buf, writeLen);
     if (ret == BSL_SUCCESS) {
         uio->writeNum += (int64_t)*writeLen;
     }
@@ -219,7 +217,7 @@ int32_t BSL_UIO_Puts(BSL_UIO *uio, const char *buf, uint32_t *writeLen)
 
 int32_t BSL_UIO_Gets(BSL_UIO *uio, char *buf, uint32_t *readLen)
 {
-    if (uio == NULL || uio->method.gets == NULL || readLen == NULL || buf == NULL) {
+    if (uio == NULL || uio->method.uioGets == NULL || readLen == NULL || buf == NULL) {
         BSL_ERR_PUSH_ERROR(BSL_INTERNAL_EXCEPTION);
         return BSL_INTERNAL_EXCEPTION;
     }
@@ -229,7 +227,7 @@ int32_t BSL_UIO_Gets(BSL_UIO *uio, char *buf, uint32_t *readLen)
         return BSL_UIO_UNINITIALIZED;
     }
 
-    int32_t ret = uio->method.gets(uio, buf, readLen);
+    int32_t ret = uio->method.uioGets(uio, buf, readLen);
     if (ret == BSL_SUCCESS) {
         uio->readNum += (int64_t)*readLen;
     }
@@ -239,7 +237,7 @@ int32_t BSL_UIO_Gets(BSL_UIO *uio, char *buf, uint32_t *readLen)
 
 int32_t BSL_UIO_Read(BSL_UIO *uio, void *data, uint32_t len, uint32_t *readLen)
 {
-    if (uio == NULL || uio->method.read == NULL || data == NULL || len == 0 || readLen == NULL) {
+    if (uio == NULL || uio->method.uioRead == NULL || data == NULL || len == 0 || readLen == NULL) {
         BSL_LOG_BINLOG_FIXLEN(BINLOG_ID05027, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
             "uio read: internal input error.", 0, 0, 0, 0);
         BSL_ERR_PUSH_ERROR(BSL_INTERNAL_EXCEPTION);
@@ -251,7 +249,7 @@ int32_t BSL_UIO_Read(BSL_UIO *uio, void *data, uint32_t len, uint32_t *readLen)
         return BSL_UIO_UNINITIALIZED;
     }
 
-    int32_t ret = uio->method.read(uio, data, len, readLen);
+    int32_t ret = uio->method.uioRead(uio, data, len, readLen);
     if (ret == BSL_SUCCESS) {
         uio->readNum += (int64_t)*readLen;
     }
@@ -267,7 +265,24 @@ int32_t BSL_UIO_GetTransportType(const BSL_UIO *uio)
         BSL_ERR_PUSH_ERROR(BSL_NULL_INPUT);
         return BSL_NULL_INPUT;
     }
-    return uio->method.type;
+    return uio->method.uioType;
+}
+
+bool BSL_UIO_GetUioChainTransportType(BSL_UIO *uio, const BSL_UIO_TransportType uioType)
+{
+    if (uio == NULL) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID05069, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+            "get uio type is NULL.", NULL, NULL, NULL, NULL);
+        return false;
+    }
+
+    while (uio != NULL) {
+        if (BSL_UIO_GetTransportType(uio) == (int32_t)uioType) {
+            return true;
+        }
+        uio = BSL_UIO_Next(uio);
+    }
+    return false;
 }
 
 int32_t BSL_UIO_SetUserData(BSL_UIO *uio, void *data)
@@ -357,7 +372,7 @@ static int32_t UIO_GetWriteNum(BSL_UIO *uio, int32_t larg, int64_t *parg)
 
 int32_t BSL_UIO_Ctrl(BSL_UIO *uio, int32_t cmd, int32_t larg, void *parg)
 {
-    if (uio == NULL || uio->method.ctrl == NULL) {
+    if (uio == NULL || uio->method.uioCtrl == NULL) {
         BSL_ERR_PUSH_ERROR(BSL_NULL_INPUT);
         return BSL_NULL_INPUT;
     }
@@ -369,7 +384,7 @@ int32_t BSL_UIO_Ctrl(BSL_UIO *uio, int32_t cmd, int32_t larg, void *parg)
         case BSL_UIO_GET_WRITE_NUM:
             return UIO_GetWriteNum(uio, larg, parg);
         default:
-            return uio->method.ctrl(uio, cmd, larg, parg);
+            return uio->method.uioCtrl(uio, cmd, larg, parg);
     }
 }
 
@@ -395,7 +410,7 @@ int32_t BSL_UIO_GetFd(BSL_UIO *uio)
     return fd;
 }
 
-void BSL_UIO_SetFd(BSL_UIO *uio, int fd)
+void BSL_UIO_SetFD(BSL_UIO *uio, int fd)
 {
     bool invalid = (uio == NULL) || (fd < 0);
     if (invalid) {
@@ -453,8 +468,8 @@ void BSL_UIO_SetInit(BSL_UIO *uio, bool init)
  *
  * @param   err [IN] error type
  *
- * @return  true :Fatal error
- *          false:No fatal errors
+ * @return  true :No Fatal error
+ *          false:fatal errors
  */
 bool UioIsNonFatalErr(int32_t err)
 {
@@ -491,6 +506,9 @@ bool UioIsNonFatalErr(int32_t err)
 
 #ifdef EPROTO
         case EPROTO:
+#endif
+#ifdef EMSGSIZE
+        case EMSGSIZE:
 #endif
             ret = true;
             break;

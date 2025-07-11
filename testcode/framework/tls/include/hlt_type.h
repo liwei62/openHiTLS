@@ -45,8 +45,21 @@ extern "C" {
 #define ALPN_CB_NAME_LEN (50)
 #define ALPN_DATA_NAME_LEN (50)
 #define MAX_NO_RENEGOTIATIONCB_LEN (1024)
+#define MAX_PROVIDER_NAME_LEN (256)
+#define MAX_ATTR_NAME_LEN (256)
+#define MAX_PROVIDER_PATH_LEN (256)
+#define MAX_PROVIDER_COUNT (10)
 
 #define DEFAULT_CERT_PATH       "../../testcode/testdata/tls/certificate/der/"
+
+#define RSAPSS_SHA256_CA_PATH      "rsa_pss_sha256/rsa_pss_root.der:rsa_pss_sha256/rsa_pss_intCa.der"
+#define RSAPSS_SHA256_CHAIN_PATH   "rsa_pss_sha256/rsa_pss_intCa.der"
+#define RSAPSS_SHA256_EE_PATH      "rsa_pss_sha256/rsa_pss_dev.der"
+#define RSAPSS_SHA256_PRIV_PATH    "rsa_pss_sha256/rsa_pss_dev.key.der"
+#define RSAPSS_RSAE_CA_PATH        "rsa_pss_rsae/rsa_root.der:rsa_pss_rsae/rsa_intCa.der"
+#define RSAPSS_RSAE_CHAIN_PATH     "rsa_pss_rsae/rsa_intCa.der"
+#define RSAPSS_RSAE_EE_PATH        "rsa_pss_rsae/rsa_dev.der"
+#define RSAPSS_RSAE_PRIV_PATH      "rsa_pss_rsae/rsa_dev.key.der"
 
 #define RSA_SHA_CA_PATH         "rsa_sha/ca-3072.der:rsa_sha/inter-3072.der"
 #define RSA_SHA_CHAIN_PATH      "rsa_sha/inter-3072.der"
@@ -56,6 +69,12 @@ extern "C" {
 #define RSA_SHA384_PRIV_PATH    "rsa_sha/end-sha384.key.der"
 #define RSA_SHA512_EE_PATH      "rsa_sha/end-sha512.der"
 #define RSA_SHA512_PRIV_PATH    "rsa_sha/end-sha512.key.der"
+
+#define ED25519_SHA512_CA_PATH        "ed25519/ed25519.ca.der:ed25519/ed25519.intca.der"
+#define ED25519_SHA512_CHAIN_PATH     "ed25519/ed25519.intca.der"
+#define ED25519_SHA512_EE_PATH        "ed25519/ed25519.end.der"
+#define ED25519_SHA512_PRIV_PATH      "ed25519/ed25519.end.key.der"
+
 #define ECDSA_SHA_CA_PATH       "ecdsa/ca-nist521.der:ecdsa/inter-nist521.der"
 #define ECDSA_SHA_CHAIN_PATH    "ecdsa/inter-nist521.der"
 #define ECDSA_SHA256_EE_PATH    "ecdsa/end256-sha256.der"
@@ -85,21 +104,22 @@ extern "C" {
 #define ECDSA_SHA256_EE_PATH2   "ecdsa_sha256/client.der"
 #define ECDSA_SHA256_PRIV_PATH2 "ecdsa_sha256/client.key.der"
 
-#define SM2_VERIFY_PATH "sm2/ca.der:sm2/inter.der"
-#define SM2_CHAIN_PATH "sm2/inter.der"
-#define SM2_SERVER_ENC_CERT_PATH "sm2/enc.der"
-#define SM2_SERVER_ENC_KEY_PATH "sm2/enc.key.der"
-#define SM2_SERVER_SIGN_CERT_PATH "sm2/sign.der"
-#define SM2_SERVER_SIGN_KEY_PATH "sm2/sign.key.der"
-#define SM2_CLIENT_ENC_CERT_PATH "sm2/enc22.der"
-#define SM2_CLIENT_ENC_KEY_PATH "sm2/enc22.key.der"
-#define SM2_CLIENT_SIGN_CERT_PATH "sm2/sign22.der"
-#define SM2_CLIENT_SIGN_KEY_PATH "sm2/sign22.key.der"
+#define SM2_VERIFY_PATH "sm2_with_userid/ca.der:sm2_with_userid/inter.der"
+#define SM2_CHAIN_PATH "sm2_with_userid/inter.der"
+#define SM2_SERVER_ENC_CERT_PATH "sm2_with_userid/enc.der"
+#define SM2_SERVER_ENC_KEY_PATH "sm2_with_userid/enc.key.der"
+#define SM2_SERVER_SIGN_CERT_PATH "sm2_with_userid/sign.der"
+#define SM2_SERVER_SIGN_KEY_PATH "sm2_with_userid/sign.key.der"
+#define SM2_CLIENT_ENC_CERT_PATH "sm2_with_userid/enc22.der"
+#define SM2_CLIENT_ENC_KEY_PATH "sm2_with_userid/enc22.key.der"
+#define SM2_CLIENT_SIGN_CERT_PATH "sm2_with_userid/sign22.der"
+#define SM2_CLIENT_SIGN_KEY_PATH "sm2_with_userid/sign22.key.der"
 
 typedef struct ProcessSt HLT_Process;
 
 typedef enum {
     HITLS,
+    HITLS_PROVIDER,
 } TLS_TYPE;
 
 typedef enum {
@@ -118,11 +138,13 @@ typedef enum {
     TLS1_2,
     TLS1_3,
     TLCP1_1,
+    DTLCP1_1,
 } TLS_VERSION;
 
 typedef enum {
     TCP = 0,    /**< TCP protocol */
     SCTP = 1,   /**< SCTP protocol */
+    UDP = 2,    /**< UDP protocol */
     NONE_TYPE = 10,
 } HILT_TransportType;
 
@@ -189,12 +211,12 @@ typedef struct {
     char alpnList[MAX_ALPN_LEN];               // alpn
     char alpnUserData[ALPN_CB_NAME_LEN];
     char alpnSelectCb[ALPN_DATA_NAME_LEN];     // Application Layer Protocol Select Callback
-    /* Callback function when the peer end does not support security renegotiation */
-    char noSecRenegotiationCb[MAX_NO_RENEGOTIATIONCB_LEN];
 
     // Indicates whether renegotiation is supported. The default value is False, indicating that renegotiation is not
     // supported
     bool isSupportRenegotiation;
+    bool allowClientRenegotiate;        /* allow a renegotiation initiated by the client */
+    bool allowLegacyRenegotiate;        /* whether to abort handshake when server doesn't support SecRenegotiation */
     int  SupportType;                   // 1:The server algorithm is preferred
     bool needCheckKeyUsage;             // Client verification is supported. The default value is False
     // Indicates whether to allow the empty certificate list on the client. The default value is False
@@ -214,10 +236,15 @@ typedef struct {
     void *infoCb;                       // connection establishment callback function
     void *msgCb;                        // Message callback function
     void *msgArg;                       // Message callback parameter function
+    void *certCb;
+    void *certArg;
+    void *clientHelloCb;
+    void *clientHelloArg;
     // Indicates whether to enable the function of sending handshake information by flight
     bool isFlightTransmitEnable;
     bool isNoSetCert;                   // Indicates whether the certificate does not need to be set
-    int32_t securitylevel;                  // Security level
+	int32_t securitylevel;                  // Security level
+    int32_t readAhead;
 
     char psk[PSK_MAX_LEN];              // psk password
     char ticketKeyCb[TICKET_KEY_CB_NAME_LEN]; // ticket key Callback Function Name
@@ -231,6 +258,13 @@ typedef struct {
     char chainCert[MAX_CERT_LEN];
 
     bool isClient;
+    uint32_t emptyRecordsNum;
+    char providerPath[MAX_PROVIDER_PATH_LEN];
+    char providerNames[MAX_PROVIDER_COUNT][MAX_PROVIDER_NAME_LEN];
+    int32_t providerLibFmts[MAX_PROVIDER_COUNT];
+    int32_t providerCnt;
+    char attrName[MAX_ATTR_NAME_LEN];
+    uint32_t modeSupport;       // support features, such as HITLS_MODE_SEND_FALLBACK_SCSV. All mode at hitls_type.h
 } HLT_Ctx_Config;
 
 typedef struct {

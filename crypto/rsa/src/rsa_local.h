@@ -29,19 +29,13 @@
 extern "C" {
 #endif /* __cpluscplus */
 
-// When the padding type is PSS, the salt data is obtained by the DRBG and the length is hashlen.
-#define SALTLEN_PSS_HASHLEN_TYPE      (-1)
-// When the padding type is PSS, the salt data is obtained by the DRBG.
-// and the length is padLen - mdMethod->GetDigestSize - 2
-#define SALTLEN_PSS_MAXLEN_TYPE       (-2)
-// get salt length from signature
-#define SALTLEN_PSS_AUTOLEN_TYPE      (-3)
-
 #define HASH_MAX_MDSIZE  (64)
 
+#define PARAMISNULL(a) (a == NULL || a->value == NULL)
+
 typedef struct RSA_BlindSt {
-    BN_BigNum *a;
-    BN_BigNum *ai;
+    BN_BigNum *r;
+    BN_BigNum *rInv;
 } RSA_Blind;
 
 typedef struct {
@@ -63,12 +57,45 @@ typedef struct {
     BN_Mont *mont;
 } CRYPT_RSA_PubKey;
 
+#ifdef HITLS_CRYPTO_ACVP_TESTS
+typedef struct {
+    BN_BigNum *xp;  // main seed for prime p
+    BN_BigNum *xp1; // auxiliary seed1 for prime p
+    BN_BigNum *xp2; // auxiliary seed2 for prime p
+    BN_BigNum *xq;  // main seed for prime q
+    BN_BigNum *xq1; // auxiliary seed1 for prime q
+    BN_BigNum *xq2; // auxiliary seed2 for prime q
+} RSA_FIPS_AUX_PRIME_SEEDS;
+
+typedef struct {
+    union {
+        RSA_FIPS_AUX_PRIME_SEEDS fipsPrimeSeeds;
+    } primeSeed;
+} RSA_ACVP_TESTS;
+#endif
+
 struct RSA_Para {
     BN_BigNum *e;  // Exponent Value -converted.Not in char
     uint32_t bits;   // length in bits of modulus
     BN_BigNum *p;     // prime factor p
     BN_BigNum *q;     // prime factor q
+#ifdef HITLS_CRYPTO_ACVP_TESTS
+    RSA_ACVP_TESTS acvpTests;
+#endif
 };
+
+#ifdef HITLS_CRYPTO_RSA_BSSA
+typedef enum {
+    RSABSSA = 1, /**< RSA Blind Signature with Appendix, ref RFC9474 */
+} RSA_BlindType;
+
+typedef struct {
+    RSA_BlindType type; /**< padding id */
+    union {
+        RSA_Blind *bssa;
+    } para;
+} RSA_BlindParam;
+#endif
 
 /**
  * @ingroup crypt_eal_pkey
@@ -81,12 +108,23 @@ typedef enum {
     RSAES_OAEP,          /**< OAEP complies with RFC8017 */
     RSAES_PKCSV15,       /**< RSAES_PKCSV15 complies with RFC8017 */
     RSA_NO_PAD,
+    RSAES_PKCSV15_TLS, /* Specific RSA pkcs1.5 padding verification process
+                          to prevent possible Bleichenbacher attacks */
 } RSA_PadType;
+
+/**
+ * @ingroup crypt_types
+ *
+ * Pkcsv15 padding mode, when RSA is used for signature.
+ */
+typedef struct {
+    CRYPT_MD_AlgId mdId; /**< ID of the hash algorithm during pkcsv15 padding */
+} RSA_PkcsV15Para;
 
 typedef struct {
     RSA_PadType type; /**< padding id */
     union {
-        CRYPT_RSA_PkcsV15Para pkcsv15; /**< pkcsv15 padding mode */
+        RSA_PkcsV15Para pkcsv15; /**< pkcsv15 padding mode */
         RSA_PadingPara pss;         /**< pss padding mode */
         RSA_PadingPara oaep; /**< oaep padding mode */
     } para;                            /**< padding mode combination, including pss and pkcsv15 */
@@ -97,22 +135,32 @@ struct RSA_Ctx {
     CRYPT_RSA_PrvKey *prvKey;
     CRYPT_RSA_PubKey *pubKey;
     CRYPT_RSA_Para *para;
-    RSA_Blind *blind;
+#ifdef HITLS_CRYPTO_RSA_BLINDING
+    RSA_Blind *scBlind; // Preventing side channel attacks
+#endif
     RSAPad pad;
     uint32_t flags;
     CRYPT_Data label; // Used for oaep padding
     BSL_SAL_RefCount references;
+#ifdef HITLS_CRYPTO_RSA_BSSA
+    RSA_BlindParam *blindParam;
+#endif
+    void *libCtx;
 };
 
 CRYPT_RSA_PrvKey *RSA_NewPrvKey(uint32_t bits);
 CRYPT_RSA_PubKey *RSA_NewPubKey(uint32_t bits);
 void RSA_FreePrvKey(CRYPT_RSA_PrvKey *prvKey);
 void RSA_FreePubKey(CRYPT_RSA_PubKey *pubKey);
-int32_t RSA_CalcPrvKey(CRYPT_RSA_Ctx *ctx, BN_Optimizer *optimizer);
-int32_t GenPssSalt(CRYPT_Data *salt, const EAL_MdMethod *mdMethod, int32_t saltLen, uint32_t padBuffLen);
+int32_t RSA_CalcPrvKey(const CRYPT_RSA_Para *para, CRYPT_RSA_Ctx *ctx, BN_Optimizer *optimizer);
+int32_t GenPssSalt(void *libCtx, CRYPT_Data *salt, const EAL_MdMethod *mdMethod, int32_t saltLen, uint32_t padBuffLen);
 void ShallowCopyCtx(CRYPT_RSA_Ctx *ctx, CRYPT_RSA_Ctx *newCtx);
 CRYPT_RSA_Para *CRYPT_RSA_DupPara(const CRYPT_RSA_Para *para);
+#ifdef HITLS_CRYPTO_RSA_EMSA_PKCSV15
+int32_t CRYPT_RSA_UnPackPkcsV15Type1(uint8_t *data, uint32_t dataLen, uint8_t *out, uint32_t *outLen);
+#endif
 
+#if defined(HITLS_CRYPTO_RSA_BLINDING) || defined(HITLS_CRYPTO_RSA_BSSA)
 /**
  * @ingroup rsa
  * @brief   Create a blinding handle.
@@ -160,13 +208,18 @@ int32_t RSA_BlindInvert(RSA_Blind *b, BN_BigNum *data, BN_BigNum *n, BN_Optimize
  * @brief Create a new Blind parameter with the parameters e and m,
  * e in the public key (n, e), n in the public key (n, e)
  *
+ * @param libCtx [IN] libctx
  * @param b [IN] Blinding Handle
  * @param e [IN] e in the public key (n, e)
  * @param n [IN] n in the public key (n, e)
+ * @param bits [IN] bits of n
  *
  * @retval Return the error code.
  */
-int32_t RSA_BlindCreateParam(RSA_Blind *b, BN_BigNum *e, BN_BigNum *n, BN_Optimizer *opt);
+int32_t RSA_BlindCreateParam(void *libCtx, RSA_Blind *b, BN_BigNum *e, BN_BigNum *n, uint32_t bits, BN_Optimizer *opt);
+
+int32_t RSA_CreateBlind(RSA_Blind *b, uint32_t bits);
+#endif
 
 #define RSA_FREE_PRV_KEY(prvKey_)               \
 do {                                            \
@@ -192,4 +245,4 @@ do {                                            \
 
 #endif // HITLS_CRYPTO_RSA
 
-#endif // RSA_LOCAL_H
+#endif

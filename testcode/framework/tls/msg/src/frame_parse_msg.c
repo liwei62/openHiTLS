@@ -88,6 +88,7 @@ static int32_t ParseFieldArray8(const uint8_t *buffer, uint32_t bufLen, FRAME_Ar
     if (bufLen < fieldLen) {
         return HITLS_PARSE_INVALID_MSG_LEN;
     }
+    BSL_SAL_FREE(field->data);
     field->data = BSL_SAL_Dump(buffer, fieldLen);
     if (field->data == NULL) {
         return HITLS_MEMALLOC_FAIL;
@@ -346,7 +347,7 @@ static int32_t ParseClientHelloMsg(FRAME_Type *frameType, const uint8_t *buffer,
     ParseFieldInteger8(&buffer[offset], bufLen - offset, &clientHello->sessionIdSize, &offset);
     ParseFieldArray8(&buffer[offset], bufLen - offset, &clientHello->sessionId,
                      clientHello->sessionIdSize.data, &offset);
-    if (IS_DTLS_VERSION(frameType->versionType)) {
+    if (IS_TRANSTYPE_DATAGRAM(frameType->transportType)) {
         ParseFieldInteger8(&buffer[offset], bufLen - offset, &clientHello->cookiedLen, &offset);
         ParseFieldArray8(&buffer[offset], bufLen - offset, &clientHello->cookie, clientHello->cookiedLen.data, &offset);
     }
@@ -404,11 +405,17 @@ static int32_t ParseClientHelloMsg(FRAME_Type *frameType, const uint8_t *buffer,
             case HS_EX_TYPE_COOKIE:
                 ParseHsExtArrayForList(&buffer[offset], bufLen - offset, &clientHello->tls13Cookie, &offset);
                 break;
+            case HS_EX_TYPE_ENCRYPT_THEN_MAC:
+                ParseHsExtArray8(&buffer[offset], bufLen - offset, &clientHello->encryptThenMac, &offset);
+                break;
             default: /* Unrecognized extension. Skip parsing the extension. */
                 ParseFieldInteger16(&buffer[tmpOffset], bufLen - tmpOffset, &tmpField, &tmpOffset);
                 tmpOffset += tmpField.data;
                 offset = tmpOffset;
                 break;
+        }
+        if (tmpOffset == offset) {
+            break;
         }
     }
     *parseLen += offset;
@@ -445,6 +452,7 @@ static void CleanClientHelloMsg(FRAME_ClientHelloMsg *clientHello)
     BSL_SAL_FREE(clientHello->supportedVersion.exData.data);
     BSL_SAL_FREE(clientHello->tls13Cookie.exData.data);
     BSL_SAL_FREE(clientHello->pskModes.exData.data);
+    BSL_SAL_FREE(clientHello->caList.list.data);
     return;
 }
 
@@ -532,6 +540,9 @@ static int32_t ParseServerHelloMsg(const uint8_t *buffer, uint32_t bufLen, FRAME
             case HS_EX_TYPE_COOKIE:
                 ParseHsExtArray8(&buffer[offset], bufLen - offset, &serverHello->tls13Cookie, &offset);
                 break;
+            case HS_EX_TYPE_ENCRYPT_THEN_MAC:
+                ParseHsExtArray8(&buffer[offset], bufLen - offset, &serverHello->encryptThenMac, &offset);
+                break;
             default: /* Unrecognized extension, return error */
                 *parseLen += offset;
                 return HITLS_PARSE_UNSUPPORTED_EXTENSION;
@@ -573,6 +584,7 @@ static int32_t ParseCertificateMsg(
 
     FrameCertItem *certItem = NULL;
     while (offset < bufLen) {
+        uint32_t tmpOffset = offset;
         FrameCertItem *item = BSL_SAL_Calloc(1u, sizeof(FrameCertItem));
         if (item == NULL) {
             return HITLS_MEMALLOC_FAIL;
@@ -580,15 +592,18 @@ static int32_t ParseCertificateMsg(
         item->state = INITIAL_FIELD;
         ParseFieldInteger24(&buffer[offset], bufLen - offset, &item->certLen, &offset);
         ParseFieldArray8(&buffer[offset], bufLen - offset, &item->cert, item->certLen.data, &offset);
+        if (type->versionType == HITLS_VERSION_TLS13) {
+            ParseFieldInteger16(&buffer[offset], bufLen - offset, &item->extensionLen, &offset);
+            ParseFieldArray8(&buffer[offset], bufLen - offset, &item->extension, item->extensionLen.data, &offset);
+        }
         if (certificate->certItem == NULL) {
             certificate->certItem = item;
         } else {
             certItem->next = item;
         }
         certItem = item;
-        if (type->versionType == HITLS_VERSION_TLS13) {
-            FRAME_Integer status;
-            ParseFieldInteger16(&buffer[offset], bufLen - offset, &status, &offset);
+        if (tmpOffset == offset) {
+            break;
         }
     }
     *parseLen += offset;
@@ -603,6 +618,7 @@ static void CleanCertificateMsg(FRAME_CertificateMsg *certificate)
     while (certItem != NULL) {
         FrameCertItem *temp = certItem->next;
         BSL_SAL_FREE(certItem->cert.data);
+        BSL_SAL_FREE(certItem->extension.data);
         BSL_SAL_FREE(certItem);
         certItem = temp;
     }
@@ -785,10 +801,9 @@ static int32_t ParseClientKxMsg(FRAME_Type *frameType, const uint8_t *buffer, ui
     uint32_t offset = 0;
     switch (frameType->keyExType) {
         case HITLS_KEY_EXCH_ECDHE:
-            /* Three bytes are added to the client key exchange. */
-
-#ifndef HITLS_NO_TLCP11
-            if (frameType->versionType == HITLS_VERSION_TLCP11) {
+            /* Compatible with OpenSSL. Three bytes are added to the client key exchange. */
+#ifdef HITLS_TLS_PROTO_TLCP11
+            if (frameType->versionType == HITLS_VERSION_TLCP_DTLCP11) {
                 // Curve type + Curve ID + Public key length
                 uint8_t minLen = sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint8_t);
                 if (bufLen < minLen) {
@@ -802,6 +817,7 @@ static int32_t ParseClientKxMsg(FRAME_Type *frameType, const uint8_t *buffer, ui
             ParseFieldArray8(&buffer[offset], bufLen - offset, &clientKx->pubKey, clientKx->pubKeySize.data, &offset);
             break;
         case HITLS_KEY_EXCH_DHE:
+        case HITLS_KEY_EXCH_RSA:
             ParseFieldInteger16(&buffer[offset], bufLen - offset, &clientKx->pubKeySize, &offset);
             ParseFieldArray8(&buffer[offset], bufLen - offset, &clientKx->pubKey, clientKx->pubKeySize.data, &offset);
             break;
@@ -876,7 +892,7 @@ static int32_t ParseNewSessionTicket(FRAME_Type *frameType, const uint8_t *buffe
             uint32_t tmpOffset = offset;
             ParseFieldInteger16(&buffer[tmpOffset], bufLen - tmpOffset, &tmpField, &tmpOffset);
             switch (tmpField.data) {
-                default: 
+                default:
                     /* The extensions in the tls 1.3 new session ticket cannot be parsed currently. Skip this step. */
                     ParseFieldInteger16(&buffer[tmpOffset], bufLen - tmpOffset, &tmpField, &tmpOffset);
                     tmpOffset += tmpField.data;
@@ -903,7 +919,7 @@ static int32_t ParseHsMsg(FRAME_Type *frameType, const uint8_t *buffer, uint32_t
     ParseFieldInteger8(&buffer[0], bufLen, &hsMsg->type, &offset);
     ParseFieldInteger24(&buffer[offset], bufLen - offset, &hsMsg->length, &offset);
 
-    if (IS_DTLS_VERSION(frameType->versionType)) {
+    if (IS_TRANSTYPE_DATAGRAM(frameType->transportType)) {
         ParseFieldInteger16(&buffer[offset], bufLen - offset, &hsMsg->sequence, &offset);
         ParseFieldInteger24(&buffer[offset], bufLen - offset, &hsMsg->fragmentOffset, &offset);
         ParseFieldInteger24(&buffer[offset], bufLen - offset, &hsMsg->fragmentLength, &offset);
@@ -959,7 +975,7 @@ static int32_t ParseCcsMsg(const uint8_t *buffer, uint32_t bufLen, FRAME_CcsMsg 
 
 static void CleanCcsMsg(FRAME_CcsMsg *ccsMsg)
 {
-    /* This field is used to construct abnormal packets. Data is not written during parsing. However, 
+    /* This field is used to construct abnormal packets. Data is not written during parsing. However,
      * users may apply for memory. Therefore, this field needs to be released. */
     BSL_SAL_FREE(ccsMsg->extra.data);
     return;
@@ -981,7 +997,7 @@ static int32_t ParseAlertMsg(const uint8_t *buffer, uint32_t bufLen, FRAME_Alert
 
 static void CleanAlertMsg(FRAME_AlertMsg *alertMsg)
 {
-    /* This field is used to construct abnormal packets. Data is not written during parsing. 
+    /* This field is used to construct abnormal packets. Data is not written during parsing.
      * However, users may apply for memory. Therefore, this field needs to be released. */
     BSL_SAL_FREE(alertMsg->extra.data);
     return;
@@ -1016,7 +1032,7 @@ int32_t FRAME_ParseMsgHeader(
     ParseFieldInteger8(&buffer[0], bufLen, &msg->recType, &offset);
     ParseFieldInteger16(&buffer[offset], bufLen - offset, &msg->recVersion, &offset);
 
-    if (IS_DTLS_VERSION(frameType->versionType)) {
+    if (IS_TRANSTYPE_DATAGRAM(frameType->transportType)) {
         ParseFieldInteger16(&buffer[offset], bufLen - offset, &msg->epoch, &offset);
         ParseFieldInteger48(&buffer[offset], bufLen - offset, &msg->sequence, &offset);
     }
@@ -1081,7 +1097,7 @@ int32_t FRAME_ParseMsgBody(
         return HITLS_INTERNAL_EXCEPTION;
     }
 
-    /* To ensure that the memory can be normally released after users modify msg->recType.data, 
+    /* To ensure that the memory can be normally released after users modify msg->recType.data,
      * assign a value to frameType. */
     frameType->recordType = msg->recType.data;
     switch (msg->recType.data) {

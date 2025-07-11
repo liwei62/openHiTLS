@@ -40,60 +40,90 @@ typedef struct DrbgCtx DRBG_Ctx;
 #define DRBG_MAX_RESEED_INTERVAL    (10000)
 #endif
 
+/* Default reseed intervals */
+# define DRBG_RESEED_INTERVAL       (1 << 8)
+# define DRBG_TIME_INTERVAL         (60 * 60)   /* 1 hour */
+
+#ifndef DRBG_MAX_REQUEST_SM3
+#define DRBG_MAX_REQUEST_SM3   (1 << 5)
+#endif
+
+#ifndef DRBG_MAX_REQUEST_SM4
+#define DRBG_MAX_REQUEST_SM4 (1 << 4)
+#endif
+
+#ifndef DRBG_RESEED_INTERVAL_GM1
+#define DRBG_RESEED_INTERVAL_GM1    (1 << 20)
+#endif
+
+#ifndef DRBG_RESEED_TIME_GM1
+#define DRBG_RESEED_TIME_GM1    (600)
+#endif
+
+#ifndef DRBG_RESEED_INTERVAL_GM2
+#define DRBG_RESEED_INTERVAL_GM2    (1 << 10)
+#endif
+
+#ifndef DRBG_RESEED_TIME_GM2
+#define DRBG_RESEED_TIME_GM2    (60)
+#endif
+
+#ifndef HITLS_CRYPTO_DRBG_GM_LEVEL
+#define HITLS_CRYPTO_DRBG_GM_LEVEL 2
+#endif
+
+#ifndef HITLS_CRYPTO_RESEED_INTERVAL_GM
+#if HITLS_CRYPTO_DRBG_GM_LEVEL == 1
+#define  HITLS_CRYPTO_RESEED_INTERVAL_GM   DRBG_RESEED_INTERVAL_GM1
+#else
+#define  HITLS_CRYPTO_RESEED_INTERVAL_GM   DRBG_RESEED_INTERVAL_GM2
+#endif
+#endif
+
+#ifdef HITLS_CRYPTO_ENTROPY
+    #ifndef HITLS_SEED_DRBG_INIT_RAND_ALG
+        #ifdef HITLS_CRYPTO_AES
+            #define  HITLS_SEED_DRBG_INIT_RAND_ALG   CRYPT_RAND_AES256_CTR
+        #else
+            #error "HITLS_SEED_DRBG_INIT_RAND_ALG configuration error."
+        #endif
+    #endif
+#endif
+
+#ifndef HITLS_CRYPTO_DRBG_RESEED_TIME_GM
+#if HITLS_CRYPTO_DRBG_GM_LEVEL == 1
+#define  HITLS_CRYPTO_DRBG_RESEED_TIME_GM  DRBG_RESEED_TIME_GM1
+#else
+#define  HITLS_CRYPTO_DRBG_RESEED_TIME_GM  DRBG_RESEED_TIME_GM2
+#endif
+#endif
+
 #define DRBG_HASH_MAX_MDSIZE  (64)
 
-#ifdef HITLS_CRYPTO_DRBG_HASH
-/**
- * @ingroup drbg
- * @brief Apply for a context for the Hash_DRBG.
- * @brief This API does not support multiple threads.
- *
- * @param md        HASH method
- * @param seedMeth  DRBG seed hook
- * @param seedCtx   DRBG seed context
- *
- * @retval DRBG_Ctx* Success
- * @retval NULL      failure
- */
-DRBG_Ctx *DRBG_NewHashCtx(const EAL_MdMethod *md, const CRYPT_RandSeedMethod *seedMeth, void *seedCtx);
-#endif
+#define RAND_TYPE_MD 1
+#define RAND_TYPE_MAC 2
+#define RAND_TYPE_AES 3
+#define RAND_TYPE_AES_DF 4
+#define RAND_TYPE_SM4_DF 5
 
-#ifdef HITLS_CRYPTO_DRBG_HMAC
-/**
- * @ingroup drbg
- * @brief Apply for a context for the HMAC_DRBG.
- * @brief This API does not support multiple threads.
- *
- * @param hmacMeth  HMAC method
- * @param mdMeth    hash method
- * @param seedMeth  DRBG seed hook
- * @param seedCtx   DRBG seed context
- *
- * @retval DRBG_Ctx* Success
- * @retval NULL      failure
- */
-DRBG_Ctx *DRBG_NewHmacCtx(const EAL_MacMethod *hmacMeth, const EAL_MdMethod *mdMeth,
-    const CRYPT_RandSeedMethod *seedMeth, void *seedCtx);
-#endif
+typedef struct {
+    CRYPT_RAND_AlgId  drbgId;
+    int32_t depId;
+    uint32_t type;
+} DrbgIdMap;
 
-#ifdef HITLS_CRYPTO_DRBG_CTR
 /**
  * @ingroup drbg
- * @brief Apply for a context for the CTR_DRBG.
+ * @brief Apply for a context for the DRBG.
  * @brief This API does not support multiple threads.
  *
- * @param ciphMeth  AES method
- * @param keyLen    Key length
- * @param isUsedDf  Indicates whether to use derivation function.
- * @param seedMeth  DRBG seed hook
- * @param seedCtx   DRBG seed context
+ * @param algId     Algorithm ID for the DRBG
+ * @param param     DRBG parameters
  *
  * @retval DRBG_Ctx* Success
- * @retval NULL      failure
+ * @retval NULL      Failure
  */
-DRBG_Ctx *DRBG_NewCtrCtx(const EAL_CipherMethod *ciphMeth, const uint32_t keyLen, const bool isUsedDf,
-    const CRYPT_RandSeedMethod *seedMeth, void *seedCtx);
-#endif
+DRBG_Ctx *DRBG_New(int32_t algId, BSL_Param *param);
 
 /**
  * @ingroup drbg
@@ -113,7 +143,8 @@ void DRBG_Free(DRBG_Ctx *ctx);
  *
  * @param ctx       DRBG context
  * @param person    Personalization string. The personalization string can be NULL.
- * @param persLen   Personalization string length
+ * @param persLen   Personalization string length,
+ * @param param     DRBG parameters,Not in use yet
  *
  * @retval CRYPT_SUCCESS                Instantiation succeeded.
  * @retval CRYPT_NULL_INPUT             Invalid null pointer
@@ -122,7 +153,7 @@ void DRBG_Free(DRBG_Ctx *ctx);
  * @retval CRYPT_DRBG_FAIL_GET_NONCE    Failed to obtain the nonce.
  * @retval Hash function error code:    Failed to invoke the hash function.
  */
-int32_t DRBG_Instantiate(DRBG_Ctx *ctx, const uint8_t *person, uint32_t persLen);
+int32_t DRBG_Instantiate(DRBG_Ctx *ctx, const uint8_t *person, uint32_t persLen, BSL_Param *param);
 
 /**
  * @ingroup drbg
@@ -130,8 +161,9 @@ int32_t DRBG_Instantiate(DRBG_Ctx *ctx, const uint8_t *person, uint32_t persLen)
  * @brief The additional input can be NULL. This API does not support multiple threads.
  *
  * @param ctx           DRBG context
- * @param adin          Additional input. The data can be NULL.
+ * @param adin          Additional input. The data can be empty.
  * @param adinLen       Additional input length
+ * @param param         DRBG parameters,Not in use yet
  *
  * @retval CRYPT_SUCCESS                Instantiation succeeded.
  * @retval CRYPT_NULL_INPUT             Invalid null pointer
@@ -139,7 +171,7 @@ int32_t DRBG_Instantiate(DRBG_Ctx *ctx, const uint8_t *person, uint32_t persLen)
  * @retval CRYPT_DRBG_FAIL_GET_ENTROPY  Failed to obtain the entropy.
  * @retval Hash function error code:    Failed to invoke the hash function.
  */
-int32_t DRBG_Reseed(DRBG_Ctx *ctx, const uint8_t *adin, uint32_t adinLen);
+int32_t DRBG_Reseed(DRBG_Ctx *ctx, const uint8_t *adin, uint32_t adinLen, BSL_Param *param);
 
 /**
  * @ingroup drbg
@@ -153,16 +185,16 @@ int32_t DRBG_Reseed(DRBG_Ctx *ctx, const uint8_t *adin, uint32_t adinLen);
  * @param outLen        Output length
  * @param adin          Additional input. The data can be empty.
  * @param adinLen       Additional input length
- * @param pr            Predicted resistance. If this parameter is set to true, reseed is executed each time.
+ * @param param         DRBG parameters,involve:
+ *     pr            Predicted resistance. If this parameter is set to true, reseed is executed each time.
  *
  * @retval CRYPT_SUCCESS        Instantiation succeeded.
  * @retval CRYPT_NULL_INPUT     Invalid null pointer
  * @retval CRYPT_DRBG_ERR_STATE The DRBG status is incorrect.
  * @retval Hash function error code: Failed to invoke the hash function.
  */
-int32_t DRBG_Generate(DRBG_Ctx *ctx,
-                      uint8_t *out, uint32_t outLen,
-                      const uint8_t *adin, uint32_t adinLen, bool pr);
+int32_t DRBG_GenerateBytes(DRBG_Ctx *ctx, uint8_t *out, uint32_t outLen,
+    const uint8_t *adin, uint32_t adinLen, BSL_Param *param);
 
 /**
  * @ingroup drbg
@@ -175,6 +207,31 @@ int32_t DRBG_Generate(DRBG_Ctx *ctx,
  * @retval CRYPT_NULL_INPUT Invalid null pointer
  */
 int32_t DRBG_Uninstantiate(DRBG_Ctx *ctx);
+
+/**
+ * @ingroup drbg
+ * @brief get or set drbg param
+ *
+ * @param ctx [IN] drbg context
+ * @param cmd [IN] Option information
+ * @param val [IN/OUT] Data to be set/obtained
+ * @param valLen [IN] Length of the data marked as "val"
+ *
+ * @retval  #CRYPT_SUCCESS.
+ *          For other error codes, see crypt_errno.h.
+ */
+int32_t DRBG_Ctrl(DRBG_Ctx *ctx, int32_t cmd, void *val, uint32_t valLen);
+
+/**
+ * @ingroup drbg
+ * @brief Get the map corresponding to the algid.
+ *
+ * @param id enum of CRYPT_RAND_AlgId
+ *
+ * @retval DrbgIdMap
+ * @retval NULL Invalid arguments
+ */
+const DrbgIdMap *DRBG_GetIdMap(CRYPT_RAND_AlgId id);
 
 #ifdef __cplusplus
 }

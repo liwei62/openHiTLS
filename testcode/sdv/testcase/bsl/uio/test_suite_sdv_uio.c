@@ -36,7 +36,6 @@
 #include "bsl_errno.h"
 #include "bsl_uio.h"
 #include "uio_base.h"
-#include "uio_sctp.h"
 #include "sal_atomic.h"
 #include "uio_abstraction.h"
 
@@ -115,11 +114,13 @@ static int32_t STUB_Ctrl(BSL_UIO *uio, int32_t cmd, int32_t larg, void *param)
 const BSL_UIO_Method * GetUioMethodByType(int uioType)
 {
     switch (uioType) {
+#ifdef HITLS_BSL_UIO_TCP
         case BSL_UIO_TCP:
             return BSL_UIO_TcpMethod();
-#ifdef HITLS_BSL_UIO_SCTP
-        case BSL_UIO_SCTP:
-            return BSL_UIO_SctpMethod();
+#endif
+#ifdef HITLS_BSL_UIO_UDP
+        case BSL_UIO_UDP:
+            return BSL_UIO_UdpMethod();
 #endif
         case BSL_UIO_BUFFER:
             return BSL_UIO_BufferMethod();
@@ -141,18 +142,18 @@ static int32_t BslUioCreate(BSL_UIO *uio)
     CustomLowCtx *lowCtx = BSL_SAL_Calloc(1, sizeof(CustomLowCtx));
     if (lowCtx == NULL) {
         ret = BSL_MALLOC_FAIL;
-        goto exit;
+        goto EXIT;
     }
     lowCtx->buff = BSL_SAL_Malloc(len);
     if (lowCtx->buff == NULL) {
         ret = BSL_MALLOC_FAIL;
-        goto exit;
+        goto EXIT;
     }
     lowCtx->len = len;
     BSL_UIO_SetCtx(uio, (void *)lowCtx);
     BSL_UIO_SetInit(uio, 1);
     return BSL_SUCCESS;
-exit:
+EXIT:
     if(lowCtx != NULL) {
         BSL_SAL_FREE(lowCtx->buff);
         BSL_SAL_FREE(lowCtx);
@@ -242,7 +243,7 @@ static int32_t BslUioGets(BSL_UIO *uio, char *buf, uint32_t *readLen)
  * @title  Input parameter test
  * @precon  nan
  * @brief
- *    1. Construct the tcp/sctp method structure, and invoke BSL_UIO_New.
+ *    1. Construct the tcp/sctp/udp method structure, and invoke BSL_UIO_New.
  *    2. Invoke the BSL_UIO_GetTransportType interface.
  * @expect
  *    1. Expected the uio is not NULL, and transport type is the target type
@@ -250,38 +251,44 @@ static int32_t BslUioGets(BSL_UIO *uio, char *buf, uint32_t *readLen)
 /* BEGIN_CASE */
 void SDV_BSL_UIO_NEW_API_TC001(void)
 {
+#if defined(HITLS_BSL_UIO_TCP) || defined(HITLS_BSL_UIO_UDP)
     TestMemInit();
     /* Set method to NULL */
     BSL_UIO *uio = BSL_UIO_New(NULL);
     ASSERT_TRUE(uio == NULL);
-#ifdef HITLS_BSL_UIO_SCTP
-    /* Set transportType to sctp and construct a method structure. */
-    {
-        const BSL_UIO_Method *ori = BSL_UIO_SctpMethod();
-        BSL_UIO_Method method = {0};
-        memcpy(&method, ori, sizeof(method));
-        method.write = STUB_Write;
-        method.read = STUB_Read;
-        method.ctrl = STUB_Ctrl;
-        uio = BSL_UIO_New(&method);
-        ASSERT_TRUE(uio != NULL && BSL_UIO_GetTransportType(uio) == BSL_UIO_SCTP);
-        BSL_UIO_Free(uio);
-    }
-#endif
+#ifdef HITLS_BSL_UIO_TCP
     /* Set transportType to tcp and construct the method structure. */
     {
         const BSL_UIO_Method *ori = BSL_UIO_TcpMethod();
         BSL_UIO_Method method = {0};
         memcpy(&method, ori, sizeof(method));
-        method.write = STUB_Write;
-        method.read = STUB_Read;
-        method.ctrl = STUB_Ctrl;
+        method.uioWrite = STUB_Write;
+        method.uioRead = STUB_Read;
+        method.uioCtrl = STUB_Ctrl;
         uio = BSL_UIO_New(&method);
         ASSERT_TRUE(uio != NULL && BSL_UIO_GetTransportType(uio) == BSL_UIO_TCP);
         BSL_UIO_Free(uio);
     }
-exit:
+#endif
+#ifdef HITLS_BSL_UIO_UDP
+    /* Set transportType to udp and construct the method structure. */
+    {
+        const BSL_UIO_Method *ori = BSL_UIO_UdpMethod();
+        BSL_UIO_Method method = {0};
+        memcpy(&method, ori, sizeof(method));
+        method.uioWrite = STUB_Write;
+        method.uioRead = STUB_Read;
+        method.uioCtrl = STUB_Ctrl;
+        uio = BSL_UIO_New(&method);
+        ASSERT_TRUE(uio != NULL && BSL_UIO_GetTransportType(uio) == BSL_UIO_UDP);
+        BSL_UIO_Free(uio);
+    }
+#endif
+EXIT:
     return;
+#else
+    SKIP_TEST();
+#endif
 }
 /* END_CASE */
 
@@ -324,7 +331,7 @@ void SDV_BSL_UIO_NEW_API_TC002(void)
 
     ASSERT_EQ(BSL_UIO_Puts(uio, test, &len), BSL_INVALID_ARG);
 
-exit:
+EXIT:
     BSL_UIO_Free(uio);
     BSL_UIO_FreeMethod(ori);
 }
@@ -380,7 +387,7 @@ void SDV_BSL_UIO_NEW_FUNC_TC001(void)
     ASSERT_EQ(BSL_UIO_Ctrl(uio, BSL_CUSTOM_UIO_GET_INDEX, sizeof(index), &index), BSL_SUCCESS);
     ASSERT_EQ(index, 0);
 
-exit:
+EXIT:
     BSL_UIO_Free(uio);
     BSL_UIO_FreeMethod(ori);
 }
@@ -416,14 +423,8 @@ void SDV_BSL_UIO_INIT_FUNC_TC001(int uioType)
     const BSL_UIO_Method *ori = NULL;
     switch (uioType) {
         case BSL_UIO_TCP:
+        case BSL_UIO_UDP:
             ori = GetUioMethodByType(uioType);
-            break;
-        case BSL_UIO_SCTP:
-#ifdef HITLS_BSL_UIO_SCTP
-            ori = GetUioMethodByType(uioType);
-#else
-            SKIP_TEST();
-#endif
             break;
         default: // The uio of the FD cannot be set.
             ASSERT_TRUE(false);
@@ -442,7 +443,7 @@ void SDV_BSL_UIO_INIT_FUNC_TC001(int uioType)
     ASSERT_EQ(BSL_UIO_Ctrl(uio, BSL_UIO_GET_FD, (int32_t)sizeof(fd), &getFd), BSL_SUCCESS);
     ASSERT_EQ(getFd, fd);
 
-exit:
+EXIT:
     BSL_UIO_Free(uio);
 }
 /* END_CASE */
@@ -479,7 +480,7 @@ void SDV_BSL_UIO_INIT_FUNC_TC002(int uioType)
     ASSERT_EQ(BSL_UIO_Ctrl(uio, BSL_UIO_GET_INIT, (int32_t)sizeof(init), &init), BSL_SUCCESS);
     ASSERT_EQ(init, 1);
 
-exit:
+EXIT:
     BSL_UIO_Free(uio);
 }
 /* END_CASE */
@@ -541,7 +542,7 @@ void SDV_BSL_UIO_SETUSERDATA_API_TC001(void)
     ret = BSL_UIO_SetUserData(uio, userData2);
     ASSERT_TRUE(ret == BSL_SUCCESS);
 
-exit:
+EXIT:
     BSL_UIO_Free(uio);
 }
 /* END_CASE */
@@ -580,7 +581,7 @@ void SDV_BSL_UIO_GETUSERDATA_API_TC001(void)
 
     data = BSL_UIO_GetUserData(uio);
     ASSERT_TRUE(data == userData);
-exit:
+EXIT:
     BSL_UIO_Free(uio);
 }
 /* END_CASE */
@@ -599,11 +600,6 @@ exit:
 /* BEGIN_CASE */
 void SDV_BSL_UIO_FLAGS_FUNC_TC001(int uioType)
 {
-    if (uioType == BSL_UIO_SCTP) {
-#ifndef HITLS_BSL_UIO_SCTP
-    SKIP_TEST();
-#endif
-    }
     BSL_UIO *uio = NULL;
 
     const BSL_UIO_Method *ori = GetUioMethodByType(uioType);
@@ -639,7 +635,7 @@ void SDV_BSL_UIO_FLAGS_FUNC_TC001(int uioType)
     ASSERT_EQ(BSL_UIO_SetFlags(uio, INT_MAX), BSL_INVALID_ARG);
     ASSERT_EQ(BSL_UIO_SetFlags(uio, 0), BSL_INVALID_ARG);
 
-exit:
+EXIT:
     BSL_UIO_Free(uio);
 }
 /* END_CASE */
@@ -682,7 +678,7 @@ void SDV_BSL_UIO_FLAGS_FUNC_TC002(void)
 
     ASSERT_TRUE(BSL_UIO_TestFlags(uio, BSL_UIO_FLAGS_SHOULD_RETRY, &out) == BSL_SUCCESS);
     ASSERT_TRUE(out == BSL_UIO_FLAGS_SHOULD_RETRY);
-exit:
+EXIT:
     BSL_UIO_Free(uio);
 }
 /* END_CASE */
@@ -717,7 +713,7 @@ void SDV_BSL_UIO_UPREF_API_TC001(void)
     ret = BSL_UIO_UpRef(uio);
     ASSERT_TRUE(ret == BSL_SUCCESS);
 
-exit:
+EXIT:
     BSL_UIO_Free(uio);
     BSL_UIO_Free(uio);
 #endif
@@ -741,6 +737,7 @@ exit:
 /* BEGIN_CASE */
 void SDV_BSL_UIO_WRITE_API_TC001(void)
 {
+#ifdef HITLS_BSL_UIO_TCP
     BSL_UIO *uio = NULL;
     uint8_t data[MAX_BUF_SIZE] = {0};
     const uint32_t len = 1;
@@ -749,8 +746,8 @@ void SDV_BSL_UIO_WRITE_API_TC001(void)
     const BSL_UIO_Method *ori = BSL_UIO_TcpMethod();
     BSL_UIO_Method method = {0};
     memcpy(&method, ori, sizeof(method));
-    method.write = STUB_Write;
-    method.read = STUB_Read;
+    method.uioWrite = STUB_Write;
+    method.uioRead = STUB_Read;
 
     /* The test UIO is empty. */
     int32_t ret = BSL_UIO_Write(NULL, data, len, &writeLen);
@@ -770,8 +767,11 @@ void SDV_BSL_UIO_WRITE_API_TC001(void)
     /* Test that writeLen is NULL. */
     ret = BSL_UIO_Write(uio, data, len, NULL);
     ASSERT_TRUE(ret == BSL_INTERNAL_EXCEPTION);
-exit:
+EXIT:
     BSL_UIO_Free(uio);
+#else
+    SKIP_TEST();
+#endif
 }
 /* END_CASE */
 
@@ -795,6 +795,7 @@ exit:
 /* BEGIN_CASE */
 void SDV_BSL_UIO_READ_API_TC001(void)
 {
+#ifdef HITLS_BSL_UIO_TCP
     BSL_UIO *uio = NULL;
     uint8_t data[MAX_BUF_SIZE] = {0};
     const uint32_t len = 1;
@@ -803,8 +804,8 @@ void SDV_BSL_UIO_READ_API_TC001(void)
     const BSL_UIO_Method *ori = BSL_UIO_TcpMethod();
     BSL_UIO_Method method = {0};
     memcpy(&method, ori, sizeof(method));
-    method.write = STUB_Write;
-    method.read = STUB_Read;
+    method.uioWrite = STUB_Write;
+    method.uioRead = STUB_Read;
 
     /* The test UIO is empty. */
     int32_t ret = BSL_UIO_Read(NULL, data, len, &readLen);
@@ -824,8 +825,11 @@ void SDV_BSL_UIO_READ_API_TC001(void)
     /* Test that writeLen is NULL. */
     ret = BSL_UIO_Read(uio, data, len, NULL);
     ASSERT_TRUE(ret == BSL_INTERNAL_EXCEPTION);
-exit:
+EXIT:
     BSL_UIO_Free(uio);
+#else
+    SKIP_TEST();
+#endif
 }
 /* END_CASE */
 
@@ -863,7 +867,7 @@ void SDV_BSL_UIO_SET_USERDATA_FREE_TC001(void)
 
     ret = BSL_UIO_SetUserDataFreeFunc(uio, BSL_SAL_Free);
     ASSERT_TRUE(ret == BSL_SUCCESS);
-exit:
+EXIT:
     BSL_UIO_Free(uio);
 }
 /* END_CASE */
@@ -883,6 +887,7 @@ exit:
 /* BEGIN_CASE */
 void SDV_BSL_UIO_GET_METHOD_TC001(void)
 {
+#ifdef HITLS_BSL_UIO_TCP
     const BSL_UIO_Method *ori = BSL_UIO_TcpMethod();
     BSL_UIO *uio = BSL_UIO_New(ori);
     ASSERT_TRUE(uio != NULL);
@@ -890,8 +895,11 @@ void SDV_BSL_UIO_GET_METHOD_TC001(void)
     const BSL_UIO_Method *method = BSL_UIO_GetMethod(uio);
     int ret = memcmp(method, ori, sizeof(BSL_UIO_Method));
     ASSERT_TRUE(ret == 0);
-exit:
+EXIT:
     BSL_UIO_Free(uio);
+#else
+    SKIP_TEST();
+#endif
 }
 /* END_CASE */
 
@@ -915,6 +923,7 @@ exit:
 /* BEGIN_CASE */
 void SDV_BSL_UIO_GET_READANDWRITE_NUM_TC001(void)
 {
+#ifdef HITLS_BSL_UIO_TCP
     BSL_UIO *uio = NULL;
     uint8_t data[10] = {'0', '1', '2', '3', '4'};
     uint8_t readBuf[10] = {0};
@@ -927,8 +936,8 @@ void SDV_BSL_UIO_GET_READANDWRITE_NUM_TC001(void)
     const BSL_UIO_Method *ori = BSL_UIO_TcpMethod();
     BSL_UIO_Method method = {0};
     memcpy(&method, ori, sizeof(method));
-    method.write = STUB_Write;
-    method.read = STUB_Read;
+    method.uioWrite = STUB_Write;
+    method.uioRead = STUB_Read;
 
     uio = BSL_UIO_New(&method);
     ASSERT_TRUE(uio != NULL);
@@ -941,8 +950,11 @@ void SDV_BSL_UIO_GET_READANDWRITE_NUM_TC001(void)
     ASSERT_TRUE(BSL_UIO_Read(uio, readBuf, dataLen, &readLen) == BSL_SUCCESS);
     ASSERT_EQ(BSL_UIO_Ctrl(uio, BSL_UIO_GET_READ_NUM, (int32_t)sizeof(readNum), &readNum), BSL_SUCCESS);
     ASSERT_EQ(readNum, readLen);
-exit:
+EXIT:
     BSL_UIO_Free(uio);
+#else
+    SKIP_TEST();
+#endif
 }
 /* END_CASE */
 
@@ -952,7 +964,7 @@ exit:
  * @precon  nan
  * @brief
  *    1. Call BSL_UIO_New to create a tcp uio. Expected result 1 is obtained.
- *    2. Call BSL_UIO_SetFd to set fd to uio. Call BSL_UIO_Ctrl and transfer the BSL_UIO_GET_FD parameter to obtain
+ *    2. Call BSL_UIO_SetFD to set fd to uio. Call BSL_UIO_Ctrl and transfer the BSL_UIO_GET_FD parameter to obtain
  *       the fd1 of uio. Compare the two fds. Expected result 2 is obtained.
  * @expect
  *    1. The TCP UIO is successfully created.
@@ -969,11 +981,11 @@ void SDV_BSL_UIO_SET_FD_TC001(void)
     ASSERT_TRUE(uio != NULL);
     BSL_UIO_SetIsUnderlyingClosedByUio(uio, true);
 
-    BSL_UIO_SetFd(uio, fd);
+    BSL_UIO_SetFD(uio, fd);
     int32_t fd1 = -1;
     ASSERT_TRUE(BSL_UIO_Ctrl(uio, BSL_UIO_GET_FD, (int32_t)sizeof(fd1), &fd1) == BSL_SUCCESS);
     ASSERT_TRUE(fd == fd1);
-exit:
+EXIT:
     BSL_UIO_Free(uio);
     remove(filename);
 }
@@ -1005,9 +1017,67 @@ void SDV_BSL_UIO_NEXT_TC001(void)
     ASSERT_TRUE(BSL_UIO_Append(tcp1, tcp2) == BSL_SUCCESS);
     ASSERT_TRUE(BSL_UIO_Next(tcp1) == tcp2);
     ASSERT_TRUE(BSL_UIO_Next(tcp2) == NULL);
-exit:
+EXIT:
     BSL_UIO_Free(tcp1);
     BSL_UIO_Free(tcp2);
+}
+/* END_CASE */
+
+typedef union {
+    struct sockaddr addr;
+    struct sockaddr_in6 addrIn6;
+    struct sockaddr_in addrIn;
+    struct sockaddr_un addrUn;
+} UIO_Addr;
+/**
+ * @test  SDV_BSL_UIO_UDP_API_TC001
+ * @title  UDP ctrl test
+ * @precon  nan
+ * @brief
+ *    1. Call BSL_UIO_UdpMethod to create a UDP method. Expected result 1 is obtained.
+ *    2. The input cmd is BSL_UIO_SET_PEER_IP_ADDR when BSL_UIO_Ctrl is invoked. Expected result 2 is obtained.
+ *    3. The input cmd is BSL_UIO_GET_PEER_IP_ADDR when BSL_UIO_Ctrl is invoked. Expected result 3 is obtained.
+ *    4. The input cmd is BSL_UIO_UDP_SET_CONNECTED when BSL_UIO_Ctrl is invoked. Expected result 3 is obtained.
+ * @expect
+ *    1. The UDP method is successfully created.
+ *    2. Return BSL_SUCCESS
+ *    3. Return BSL_SUCCESS
+ */
+/* BEGIN_CASE */
+void SDV_BSL_UIO_UDP_API_TC001(void)
+{
+    BSL_UIO *uio = NULL;
+    int ret;
+    UIO_Addr peerAddr = { 0 };
+    uint8_t ipv4[IP_V4_LEN] = {0x11, 0x22, 0x33, 0x44};
+    peerAddr.addr.sa_family = AF_INET;
+    ASSERT_TRUE(memcpy_s(peerAddr.addr.sa_data, sizeof(UIO_Addr), ipv4, IP_V4_LEN) == EOK);
+
+    const BSL_UIO_Method *ori = BSL_UIO_UdpMethod();
+    BSL_UIO_Method method = {0};
+    memcpy_s(&method, sizeof(method), ori, sizeof(method));
+    method.uioWrite = STUB_Write;
+    method.uioRead = STUB_Read;
+
+    uio = BSL_UIO_New(&method);
+    ASSERT_TRUE(uio != NULL);
+
+    ret = BSL_UIO_Ctrl(uio, BSL_UIO_SET_PEER_IP_ADDR, sizeof(peerAddr), &peerAddr);
+    ASSERT_TRUE(ret == BSL_SUCCESS);
+
+    UIO_Addr getAddr = { 0 };
+    ret = BSL_UIO_Ctrl(uio, BSL_UIO_GET_PEER_IP_ADDR, sizeof(getAddr), &getAddr);
+    ASSERT_TRUE(ret == BSL_SUCCESS);
+
+    ASSERT_TRUE(memcmp(getAddr.addr.sa_data, peerAddr.addr.sa_data, IP_V4_LEN) == 0);
+
+    ret = BSL_UIO_Ctrl(uio, BSL_UIO_UDP_SET_CONNECTED, sizeof(peerAddr.addr), &peerAddr);
+    ASSERT_TRUE(ret == BSL_SUCCESS);
+
+    ret = BSL_UIO_Ctrl(uio, BSL_UIO_UDP_SET_CONNECTED, 0, NULL);
+    ASSERT_TRUE(ret == BSL_SUCCESS);
+EXIT:
+    BSL_UIO_Free(uio);
 }
 /* END_CASE */
 
@@ -1042,8 +1112,8 @@ void SDV_BSL_UIO_SCTP_API_TC001(void)
     const BSL_UIO_Method *ori = BSL_UIO_SctpMethod();
     BSL_UIO_Method method = {0};
     memcpy(&method, ori, sizeof(method));
-    method.write = STUB_Write;
-    method.read = STUB_Read;
+    method.uioWrite = STUB_Write;
+    method.uioRead = STUB_Read;
 
     uio = BSL_UIO_New(&method);
     ASSERT_TRUE(uio != NULL);
@@ -1056,7 +1126,7 @@ void SDV_BSL_UIO_SCTP_API_TC001(void)
 
     ret = BSL_UIO_Ctrl(uio, BSL_UIO_SCTP_SET_APP_STREAM_ID, sizeof(uint16_t), &sendAppStreamId);
     ASSERT_TRUE(ret == BSL_SUCCESS);
-exit:
+EXIT:
     BSL_UIO_Free(uio);
 #endif
 }
@@ -1101,8 +1171,113 @@ void SDV_BSL_UIO_BUFFER_RESET_TC001(void)
 
     ret = BSL_UIO_Ctrl(buffer, BSL_UIO_RESET, 0, NULL);
     ASSERT_TRUE(ret = BSL_UIO_FAIL);
-exit:
+EXIT:
     BSL_UIO_Free(buffer);
     BSL_UIO_Free(tcp);
+}
+/* END_CASE */
+
+/* BEGIN_CASE */
+void SDV_BSL_UIO_MEM_BASIC_TC001(void)
+{
+    TestMemInit();
+    
+    // Create memory UIO
+    BSL_UIO *uio = BSL_UIO_New(BSL_UIO_MemMethod());
+    ASSERT_TRUE(uio != NULL);
+    
+    // Test write operation
+    const char testData[] = "Hello World";
+    uint32_t writeLen = 0;
+    int32_t ret = BSL_UIO_Write(uio, testData, strlen(testData), &writeLen);
+    ASSERT_TRUE(ret == BSL_SUCCESS);
+    ASSERT_TRUE(writeLen == strlen(testData));
+    
+    // Test read operation
+    char readBuf[20] = {0};
+    uint32_t readLen = 0;
+    ret = BSL_UIO_Read(uio, readBuf, sizeof(readBuf), &readLen);
+    ASSERT_TRUE(ret == BSL_SUCCESS);
+    ASSERT_TRUE(readLen == strlen(testData));
+    ASSERT_TRUE(memcmp(readBuf, testData, readLen) == 0);
+    
+    // Test pending data length
+    int64_t pendingLen = 0;
+    ret = BSL_UIO_Ctrl(uio, BSL_UIO_PENDING, sizeof(size_t), &pendingLen);
+    ASSERT_TRUE(ret == BSL_SUCCESS);
+    ASSERT_TRUE(pendingLen == 0); // All data has been read
+
+EXIT:
+    BSL_UIO_Free(uio);
+}
+/* END_CASE */
+
+/* BEGIN_CASE */
+void SDV_BSL_UIO_MEM_NEW_BUF_TC001(void)
+{
+    TestMemInit();
+    
+    BSL_UIO *uio = BSL_UIO_New(BSL_UIO_MemMethod());
+    ASSERT_TRUE(uio != NULL);
+    
+    // Test MemNewBuf with invalid parameters
+    int32_t ret = BSL_UIO_Ctrl(uio, BSL_UIO_MEM_NEW_BUF, -1, NULL);
+    ASSERT_TRUE(ret == BSL_NULL_INPUT);
+    
+    // Test MemNewBuf with valid parameters
+    char testBuf[] = "Test Buffer";
+    ret = BSL_UIO_Ctrl(uio, BSL_UIO_MEM_NEW_BUF, strlen(testBuf), testBuf);
+    ASSERT_TRUE(ret == BSL_SUCCESS);
+    
+    // Verify buffer is in read-only mode
+    uint32_t writeLen = 0;
+    ret = BSL_UIO_Write(uio, "data", 4, &writeLen);
+    ASSERT_TRUE(ret == BSL_UIO_WRITE_NOT_ALLOWED);
+    
+    // Test reading from new buffer
+    char readBuf[20] = {0};
+    uint32_t readLen = 0;
+    ret = BSL_UIO_Read(uio, readBuf, sizeof(readBuf), &readLen);
+    ASSERT_TRUE(ret == BSL_SUCCESS);
+    ASSERT_TRUE(readLen == strlen(testBuf));
+    ASSERT_TRUE(memcmp(readBuf, testBuf, readLen) == 0);
+EXIT:
+    BSL_UIO_Free(uio);
+}
+/* END_CASE */
+
+/* BEGIN_CASE */
+void SDV_BSL_UIO_MEM_EOF_TC001(void)
+{
+    TestMemInit();
+    
+    BSL_UIO *uio = BSL_UIO_New(BSL_UIO_MemMethod());
+    ASSERT_TRUE(uio != NULL);
+    
+    // Test setting EOF behavior
+    int32_t eofValue = 1;
+    int32_t ret = BSL_UIO_Ctrl(uio, BSL_UIO_MEM_SET_EOF, sizeof(int32_t), &eofValue);
+    ASSERT_TRUE(ret == BSL_SUCCESS);
+    
+    // Verify EOF value
+    int32_t readEof = 0;
+    ret = BSL_UIO_Ctrl(uio, BSL_UIO_MEM_GET_EOF, sizeof(int32_t), &readEof);
+    ASSERT_TRUE(ret == BSL_SUCCESS);
+    ASSERT_TRUE(readEof == eofValue);
+    
+    // Test read behavior with EOF set
+    char readBuf[10];
+    uint32_t readLen = 0;
+    ret = BSL_UIO_Read(uio, readBuf, sizeof(readBuf), &readLen);
+    ASSERT_TRUE(ret == BSL_SUCCESS);
+    ASSERT_TRUE(readLen == 0);
+    
+    // Verify retry flag is set due to EOF
+    uint32_t flags = 0;
+    BSL_UIO_TestFlags(uio, BSL_UIO_FLAGS_SHOULD_RETRY, &flags);
+    ASSERT_TRUE((flags & BSL_UIO_FLAGS_SHOULD_RETRY) != 0);
+
+EXIT:
+    BSL_UIO_Free(uio);
 }
 /* END_CASE */

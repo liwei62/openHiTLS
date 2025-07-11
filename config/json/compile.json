@@ -8,6 +8,7 @@
         "CC_WARN_FLAGS": [
             "-Werror",
             "-Wextra",
+            "-Wcast-qual",
             "-Wall",
             "-Wdate-time",
             "-Wfloat-equal",
@@ -29,7 +30,13 @@
             "-fstack-protector-strong",
             "--param=ssp-buffer-size=4"
         ],
-        "CC_DEFINE_FLAGS": [],
+        "CC_DEFINE_FLAGS": [
+            "-DHITLS_CRYPTO_NIST_ECC_ACCELERATE",
+            "-DHITLS_CRYPTO_BN_COMBA",
+            "-DHITLS_CRYPTO_AES_PRECALC_TABLES",
+            "-DHITLS_AARCH64_PACIASP",
+            "-DHITLS_CRYPTO_SM2_PRECOMPUTE_512K_TBL"
+        ],
         "CC_DEBUG_FLAGS": [],
         "CC_USER_DEFINE_FLAGS": []
     },
@@ -38,8 +45,7 @@
             "-shared",
             "-Wl,-z,noexecstack",
             "-Wl,-z,relro",
-            "-Wl,-z,now",
-            "-Wl,--build-id=none"
+            "-Wl,-z,now"
         ],
         "SHARED": [],
         "EXE": []

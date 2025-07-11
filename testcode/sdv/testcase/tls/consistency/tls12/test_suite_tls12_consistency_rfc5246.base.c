@@ -54,6 +54,8 @@
 #include "sctp_channel.h"
 #include "logger.h"
 #include "alert.h"
+#include "stub_crypt.h"
+#include "rec_wrapper.h"
 
 #define PARSEMSGHEADER_LEN 13           /* Message header length */
 #define ILLEGAL_VALUE 0xFF              /* Invalid value */
@@ -139,7 +141,7 @@ int32_t DefaultCfgStatusPark(HandshakeTestInfo *testInfo)
     if (testInfo->config == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
     testInfo->config->isSupportExtendMasterSecret = testInfo->isSupportExtendMasterSecret;
     testInfo->config->isSupportClientVerify = testInfo->isSupportClientVerify;
     testInfo->config->isSupportNoClientCert = testInfo->isSupportNoClientCert;
@@ -157,7 +159,7 @@ int32_t DefaultCfgStatusParkWithSuite(HandshakeTestInfo *testInfo)
     if (testInfo->config == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
     uint16_t cipherSuits[] = {HITLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256};
     HITLS_CFG_SetCipherSuites(testInfo->config, cipherSuits, sizeof(cipherSuits) / sizeof(uint16_t));
 
@@ -211,7 +213,7 @@ int32_t DefaultCfgStatusPark1(HandshakeTestInfo *testInfo)
     if (testInfo->config == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
     uint16_t groups[] = {HITLS_EC_GROUP_SECP256R1};
     HITLS_CFG_SetGroups(testInfo->config, groups, sizeof(groups) / sizeof(uint16_t));
     uint16_t signAlgs[] = {CERT_SIG_SCHEME_RSA_PKCS1_SHA256, CERT_SIG_SCHEME_ECDSA_SECP256R1_SHA256};
@@ -248,14 +250,12 @@ int32_t StatusPark2(HandshakeTestInfo *testInfo)
 
 int32_t SendHelloReq(HITLS_Ctx *ctx)
 {
-    int32_t ret;
     /** Initialize the message buffer. */
     uint8_t buf[HS_MSG_HEADER_SIZE] = {0u};
     size_t len = HS_MSG_HEADER_SIZE;
 
     /** Write records. */
-    ret = REC_Write(ctx, REC_TYPE_HANDSHAKE, buf, len);
-    return ret;
+    return REC_Write(ctx, REC_TYPE_HANDSHAKE, buf, len);
 }
 
 int32_t ConstructAnEmptyCertMsg(FRAME_LinkObj *link)
@@ -428,7 +428,7 @@ void ClientSendMalformedRecordHeaderMsg(HLT_FrameHandle *handle, TestPara *testP
         testPara->expectDescription);
     ASSERT_EQ(((HITLS_Ctx *)(clientRes->ssl))->hsCtx->state, testPara->expectHsState);
 
-exit:
+EXIT:
     HLT_CleanFrameHandle();
     HLT_FreeAllProcess();
     return;
@@ -470,7 +470,7 @@ void ServerSendMalformedRecordHeaderMsg(HLT_FrameHandle *handle, TestPara *testP
 
     ASSERT_TRUE(HLT_RpcTlsConnect(remoteProcess, clientRes->sslId) != 0);
     // Wait for the local end.
-    ASSERT_TRUE(HLT_GetTlsAcceptResult(serverRes) == 0);
+    ASSERT_TRUE(HLT_GetTlsAcceptResult(serverRes) != 0);
     // Confirm the final status.
     ASSERT_EQ(((HITLS_Ctx *)(serverRes->ssl))->hsCtx->state, testPara->expectHsState);
     ASSERT_TRUE(HLT_RpcTlsGetStatus(remoteProcess, clientRes->sslId) == CM_STATE_ALERTED);
@@ -478,7 +478,7 @@ void ServerSendMalformedRecordHeaderMsg(HLT_FrameHandle *handle, TestPara *testP
     ASSERT_EQ((ALERT_Description)HLT_RpcTlsGetAlertDescription(remoteProcess, clientRes->sslId),
         testPara->expectDescription);
 
-exit:
+EXIT:
     HLT_CleanFrameHandle();
     HLT_FreeAllProcess();
     return;
@@ -491,4 +491,5 @@ void SetFrameType(FRAME_Type *frametype, uint16_t versionType, REC_Type recordTy
     frametype->recordType = recordType;
     frametype->handshakeType = handshakeType;
     frametype->keyExType = keyExType;
+    frametype->transportType = BSL_UIO_TCP;
 }

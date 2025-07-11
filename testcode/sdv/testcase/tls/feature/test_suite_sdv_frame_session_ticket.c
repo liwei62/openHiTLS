@@ -42,7 +42,6 @@ static int32_t ServernameCbErrOK(HITLS_Ctx *ctx, int *alert, void *arg)
 /* BEGIN_CASE */
 void UT_TLS12_RESUME_FUNC_TC001()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     HITLS_Config *config = HITLS_CFG_NewTLS12Config();
 
@@ -78,7 +77,7 @@ void UT_TLS12_RESUME_FUNC_TC001()
     ASSERT_EQ(HITLS_IsSessionReused(client->ssl, &isReused), HITLS_SUCCESS);
     ASSERT_EQ(isReused, 1);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);

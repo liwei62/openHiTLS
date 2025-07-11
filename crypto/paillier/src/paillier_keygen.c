@@ -24,7 +24,7 @@
 #include "bsl_sal.h"
 #include "bsl_err_internal.h"
 #include "crypt_utils.h"
-
+#include "crypt_params_key.h"
 
 CRYPT_PAILLIER_Ctx *CRYPT_PAILLIER_NewCtx(void)
 {
@@ -38,6 +38,16 @@ CRYPT_PAILLIER_Ctx *CRYPT_PAILLIER_NewCtx(void)
 
     (void)memset_s(ctx, sizeof(CRYPT_PAILLIER_Ctx), 0, sizeof(CRYPT_PAILLIER_Ctx));
     BSL_SAL_ReferencesInit(&(ctx->references));
+    return ctx;
+}
+
+CRYPT_PAILLIER_Ctx *CRYPT_PAILLIER_NewCtxEx(void *libCtx)
+{
+    CRYPT_PAILLIER_Ctx *ctx = CRYPT_PAILLIER_NewCtx();
+    if (ctx == NULL) {
+        return NULL;
+    }
+    ctx->libCtx = libCtx;
     return ctx;
 }
 
@@ -57,7 +67,7 @@ static CRYPT_PAILLIER_PubKey *PaillierPubKeyDupCtx(CRYPT_PAILLIER_PubKey *pubKey
 
     return newPubKey;
 
-ERR :
+ERR:
     PAILLIER_FREE_PUB_KEY(newPubKey);
     return NULL;
 }
@@ -78,7 +88,7 @@ static CRYPT_PAILLIER_PrvKey *PaillierPrvKeyDupCtx(CRYPT_PAILLIER_PrvKey *prvKey
     GOTO_ERR_IF_SRC_NOT_NULL(newPrvKey->n2, prvKey->n2, BN_Dup(prvKey->n2), CRYPT_MEM_ALLOC_FAIL);
 
     return newPrvKey;
-ERR :
+ERR:
     PAILLIER_FREE_PRV_KEY(newPrvKey);
     return NULL;
 }
@@ -99,7 +109,7 @@ static CRYPT_PAILLIER_Para *PaillierParaDupCtx(CRYPT_PAILLIER_Para *para)
 
     return newPara;
 
-ERR :
+ERR:
     PAILLIER_FREE_PARA(newPara);
     return NULL;
 }
@@ -125,48 +135,96 @@ CRYPT_PAILLIER_Ctx *CRYPT_PAILLIER_DupCtx(CRYPT_PAILLIER_Ctx *keyCtx)
     BSL_SAL_ReferencesInit(&(newKeyCtx->references));
     return newKeyCtx;
 
-ERR :
+ERR:
     CRYPT_PAILLIER_FreeCtx(newKeyCtx);
     return NULL;
 }
 
-static int32_t PaillierNewParaBasicCheck(const CRYPT_PaillierPara *para)
+static int32_t GetPaillierParam(const BSL_Param *params, int32_t type, const uint8_t **value, uint32_t *valueLen)
 {
-    if (para == NULL || para->p == NULL || para->pLen == 0 || para->q == NULL || para->qLen == 0 || para->bits <= 0 || para->bits > PAILLIER_MAX_MODULUS_BITS) {
+    const BSL_Param *temp = BSL_PARAM_FindConstParam(params, type);
+    if (temp == NULL || temp->valueLen == 0 || temp->value == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_INVALID_ARG);
         return CRYPT_INVALID_ARG;
     }
-    /* the length of p and q should be equal to bits */
-    if (para->pLen != BN_BITS_TO_BYTES(para->bits) || para->qLen != BN_BITS_TO_BYTES(para->bits)) {
+
+    *value = temp->value;
+    *valueLen = temp->valueLen;
+    return CRYPT_SUCCESS;
+}
+
+static int32_t GetPaillierBits(const BSL_Param *params, uint32_t *bits)
+{
+    uint32_t bitsLen = sizeof(*bits);
+    const BSL_Param *temp = BSL_PARAM_FindConstParam(params, CRYPT_PARAM_PAILLIER_BITS);
+    if (temp == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_INVALID_ARG);
+        return CRYPT_INVALID_ARG;
+    }
+
+    int32_t ret = BSL_PARAM_GetValue(temp, CRYPT_PARAM_PAILLIER_BITS, BSL_PARAM_TYPE_UINT32, bits, &bitsLen);
+    if (ret != BSL_SUCCESS || *bits == 0 || *bits > PAILLIER_MAX_MODULUS_BITS) {
+        BSL_ERR_PUSH_ERROR(CRYPT_INVALID_ARG);
+        return CRYPT_INVALID_ARG;
+    }
+
+    return CRYPT_SUCCESS;
+}
+
+static int32_t ValidatePaillierParams(uint32_t pLen, uint32_t qLen, uint32_t bits)
+{
+    if (pLen != BN_BITS_TO_BYTES(bits) || qLen != BN_BITS_TO_BYTES(bits)) {
         BSL_ERR_PUSH_ERROR(CRYPT_PAILLIER_ERR_KEY_BITS);
         return CRYPT_PAILLIER_ERR_KEY_BITS;
     }
     return CRYPT_SUCCESS;
 }
 
-CRYPT_PAILLIER_Para *CRYPT_PAILLIER_NewPara(const CRYPT_PaillierPara *para)
+CRYPT_PAILLIER_Para *CRYPT_PAILLIER_NewPara(const BSL_Param *params)
 {
-    int32_t ret = PaillierNewParaBasicCheck(para);
-    if (ret != CRYPT_SUCCESS) {
-        BSL_ERR_PUSH_ERROR(ret);
+    if (params == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_INVALID_ARG);
         return NULL;
     }
+
+    const uint8_t *p = NULL, *q = NULL;
+    uint32_t pLen = 0, qLen = 0;
+    int32_t ret = GetPaillierParam(params, CRYPT_PARAM_PAILLIER_P, &p, &pLen);
+    if (ret != CRYPT_SUCCESS) {
+        return NULL;
+    }
+
+    ret = GetPaillierParam(params, CRYPT_PARAM_PAILLIER_Q, &q, &qLen);
+    if (ret != CRYPT_SUCCESS) {
+        return NULL;
+    }
+
+    uint32_t bits = 0;
+    ret = GetPaillierBits(params, &bits);
+    if (ret != CRYPT_SUCCESS) {
+        return NULL;
+    }
+
+    ret = ValidatePaillierParams(pLen, qLen, bits);
+    if (ret != CRYPT_SUCCESS) {
+        return NULL;
+    }
+
     CRYPT_PAILLIER_Para *retPara = BSL_SAL_Malloc(sizeof(CRYPT_PAILLIER_Para));
     if (retPara == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
         return NULL;
     }
-    retPara->bits = para->bits;
-    retPara->p = BN_Create(para->bits);
-    retPara->q = BN_Create(para->bits);
+
+    retPara->bits = bits;
+    retPara->p = BN_Create(bits);
+    retPara->q = BN_Create(bits);
     if (retPara->p == NULL || retPara->q == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
-        goto ERR;
+        CRYPT_PAILLIER_FreePara(retPara);
+        return NULL;
     }
     return retPara;
-ERR:
-    CRYPT_PAILLIER_FreePara(retPara);
-    return NULL;
 }
 
 void CRYPT_PAILLIER_FreeCtx(CRYPT_PAILLIER_Ctx *ctx)
@@ -252,23 +310,27 @@ CRYPT_PAILLIER_Para *CRYPT_Paillier_DupPara(const CRYPT_PAILLIER_Para *para)
     return paraCopy;
 }
 
-int32_t CRYPT_PAILLIER_SetPara(CRYPT_PAILLIER_Ctx *ctx, const CRYPT_PAILLIER_Para *para)
-{   
-    int32_t ret = IsPAILLIERSetParaVaild(ctx, para);
-    if (ret != CRYPT_SUCCESS) {
-        return ret;
+int32_t CRYPT_PAILLIER_SetPara(CRYPT_PAILLIER_Ctx *ctx, const BSL_Param *param)
+{
+    if (ctx == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
     }
-
-    CRYPT_PAILLIER_Para *paraCopy = CRYPT_Paillier_DupPara(para);
-    if (paraCopy == NULL) {
+    CRYPT_PAILLIER_Para *para = CRYPT_PAILLIER_NewPara(param);
+    if (para == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
         return CRYPT_MEM_ALLOC_FAIL;
+    }
+    int32_t ret = IsPAILLIERSetParaVaild(ctx, para);
+    if (ret != CRYPT_SUCCESS) {
+        CRYPT_PAILLIER_FreePara(para);
+        return ret;
     }
 
     PAILLIER_FREE_PARA(ctx->para);
     PAILLIER_FREE_PUB_KEY(ctx->pubKey);
     PAILLIER_FREE_PRV_KEY(ctx->prvKey);
-    ctx->para = paraCopy;
+    ctx->para = para;
     return CRYPT_SUCCESS;
 }
 
@@ -327,17 +389,16 @@ CRYPT_PAILLIER_PubKey *Paillier_NewPubKey(uint32_t bits)
 static int32_t Paillier_GenPQ(CRYPT_PAILLIER_Para *para, BN_Optimizer *optimizer)
 {
     uint32_t bits = para->bits;
-    int32_t ret = BN_GenPrime(para->p, bits, true, optimizer, NULL);
+    int32_t ret = BN_GenPrime(para->p, NULL, bits, true, optimizer, NULL);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
         return ret;
     }
-    ret = BN_GenPrime(para->q, bits, true, optimizer, NULL);
+    ret = BN_GenPrime(para->q, NULL, bits, true, optimizer, NULL);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        return ret;
     }
-    return CRYPT_SUCCESS;
+    return ret;
 }
 
 static int32_t Paillier_CalcPubKey(CRYPT_PAILLIER_PubKey *pubKey, CRYPT_PAILLIER_Para *para, BN_Optimizer *optimizer)
@@ -355,9 +416,8 @@ static int32_t Paillier_CalcPubKey(CRYPT_PAILLIER_PubKey *pubKey, CRYPT_PAILLIER
     ret = BN_Sqr(pubKey->n2, pubKey->n, optimizer);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        return ret;
     }
-    return CRYPT_SUCCESS;
+    return ret;
 }
 
 static int32_t Paillier_CalcLambda(BN_BigNum *lambda, CRYPT_PAILLIER_Para *para, BN_Optimizer *optimizer)
@@ -368,24 +428,23 @@ static int32_t Paillier_CalcLambda(BN_BigNum *lambda, CRYPT_PAILLIER_Para *para,
     int32_t ret = CRYPT_MEM_ALLOC_FAIL;
     if (pMinus1 == NULL || qMinus1 == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
-        goto OUT;
+        goto EXIT;
     }
     ret = BN_SubLimb(pMinus1, para->p, 1);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto OUT;
+        goto EXIT;
     }
     ret = BN_SubLimb(qMinus1, para->q, 1);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto OUT;
+        goto EXIT;
     }
     ret = BN_Lcm(lambda, pMinus1, qMinus1, optimizer);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto OUT;
     }
-OUT :
+EXIT:
     BN_Destroy(pMinus1);
     BN_Destroy(qMinus1);
     return ret;
@@ -401,33 +460,32 @@ static int32_t Paillier_CalcMu(BN_BigNum *mu, const BN_BigNum *lambda, CRYPT_PAI
     if (x == NULL || xMinus1 == NULL || Lx == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
         ret = CRYPT_MEM_ALLOC_FAIL;
-        goto OUT;
+        goto EXIT;
     }
 
     ret = BN_ModExp(x, pubKey->g, lambda, pubKey->n2, optimizer);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto OUT;
+        goto EXIT;
     }
 
     ret = BN_SubLimb(xMinus1, x, 1);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto OUT;
+        goto EXIT;
     }
 
     ret = BN_Div(Lx, NULL, xMinus1, pubKey->n, optimizer);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto OUT;
+        goto EXIT;
     }
 
     ret = BN_ModInv(mu, Lx, pubKey->n, optimizer);
      if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto OUT;
     }
-OUT :
+EXIT:
     BN_Destroy(x);
     BN_Destroy(xMinus1);
     BN_Destroy(Lx);
@@ -446,9 +504,8 @@ int32_t Paillier_CalcPrvKey(CRYPT_PAILLIER_Ctx *ctx, BN_Optimizer *optimizer)
     ret = Paillier_CalcMu(ctx->prvKey->mu, ctx->prvKey->lambda, ctx->pubKey, ctx->para->bits, optimizer);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        return ret;
     }
-    return CRYPT_SUCCESS;
+    return ret;
 }
 
 int32_t CRYPT_PAILLIER_Gen(CRYPT_PAILLIER_Ctx *ctx)
@@ -481,6 +538,7 @@ int32_t CRYPT_PAILLIER_Gen(CRYPT_PAILLIER_Ctx *ctx)
         BSL_ERR_PUSH_ERROR(ret);
         goto ERR;
     }
+    BN_OptimizerSetLibCtx(ctx->libCtx, optimizer);
     ret = Paillier_GenPQ(newCtx->para, optimizer);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
@@ -498,7 +556,7 @@ int32_t CRYPT_PAILLIER_Gen(CRYPT_PAILLIER_Ctx *ctx)
         BSL_ERR_PUSH_ERROR(ret);
         goto ERR;
     }
-    
+
     GOTO_ERR_IF(BN_Copy(newCtx->prvKey->n, newCtx->pubKey->n), ret);
     GOTO_ERR_IF(BN_Copy(newCtx->prvKey->n2, newCtx->pubKey->n2), ret);
 

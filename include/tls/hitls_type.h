@@ -48,6 +48,7 @@ typedef struct TlsCipherSuiteInfo HITLS_Cipher;
 
 typedef struct TlsSessCtx HITLS_Session;
 
+typedef struct CertVerifyParamInner HITLS_CertVerifyParam;
 /**
 * @ingroup hitls_type
 * @brief   DTLS SCTP authkey length, which is specified in the protocol and can be used to determine the length
@@ -80,12 +81,22 @@ typedef struct TlsSessCtx HITLS_Session;
 #define TLS11_VERSION_BIT 0x00000008U
 #define TLS12_VERSION_BIT 0x00000010U
 #define TLS13_VERSION_BIT 0x00000020U
-#define DTLS10_VERSION_BIT 0x80000000U
-#define DTLS12_VERSION_BIT 0x40000000U
+#define TLCP11_VERSION_BIT  0x00000080U
+#define DTLS10_VERSION_BIT  0x80000000U
+#define DTLS12_VERSION_BIT  0x40000000U
+#define DTLCP11_VERSION_BIT 0x00000100U
 #define TLS_VERSION_MASK (TLS12_VERSION_BIT | TLS13_VERSION_BIT)
 
 /* Currently, only DTLS12 is supported. DTLS10 is not supported */
 #define DTLS_VERSION_MASK DTLS12_VERSION_BIT
+
+#define STREAM_VERSION_BITS                                                                              \
+    (SSLV2_VERSION_BIT | SSLV3_VERSION_BIT | TLS10_VERSION_BIT | TLS11_VERSION_BIT | TLS12_VERSION_BIT | \
+     TLS13_VERSION_BIT | TLCP11_VERSION_BIT)
+#define DATAGRAM_VERSION_BITS (DTLS10_VERSION_BIT | DTLS12_VERSION_BIT | DTLCP11_VERSION_BIT)
+
+#define TLCP_VERSION_BITS (TLCP11_VERSION_BIT | DTLCP11_VERSION_BIT)
+#define ALL_VERSION       (STREAM_VERSION_BITS | DATAGRAM_VERSION_BITS)
 
 /**
  * @ingroup hitls_type
@@ -129,45 +140,10 @@ typedef enum {
 #define HITLS_READING              3u
 #define HITLS_ASYNC_PAUSED         4u
 #define HITLS_ASYNC_NO_JOBS        5u
-
+#define HITLS_CLIENT_HELLO_CB      6u
+#define HITLS_X509_LOOKUP          7u
 #define HITLS_CC_READ  0x001u       /* Read state */
 #define HITLS_CC_WRITE 0x002u       /* Write status */
-
-/* Describes the handshake status */
-typedef enum {
-    TLS_IDLE,                       /**< initial state */
-    TLS_CONNECTED,                  /**< Handshake succeeded */
-    TRY_SEND_HELLO_REQUEST,         /**< sends hello request message */
-    TRY_SEND_CLIENT_HELLO,          /**< sends client hello message */
-    TRY_SEND_HELLO_VERIFY_REQUEST,  /**< sends hello verify request message */
-    TRY_SEND_HELLO_RETRY_REQUEST,   /**< sends hello retry request message */
-    TRY_SEND_SERVER_HELLO,          /**< sends server hello message */
-    TRY_SEND_ENCRYPTED_EXTENSIONS,  /**< sends encrypted extensions message */
-    TRY_SEND_CERTIFICATE,           /**< sends certificate message */
-    TRY_SEND_SERVER_KEY_EXCHANGE,   /**< sends server key exchange message */
-    TRY_SEND_CERTIFICATE_REQUEST,   /**< sends certificate request message */
-    TRY_SEND_SERVER_HELLO_DONE,     /**< sends server hello done message */
-    TRY_SEND_CLIENT_KEY_EXCHANGE,   /**< sends client key exchange message */
-    TRY_SEND_CERTIFICATE_VERIFY,    /**< sends certificate verify message */
-    TRY_SEND_NEW_SESSION_TICKET,    /**< sends new session ticket message */
-    TRY_SEND_CHANGE_CIPHER_SPEC,    /**< sends change cipher spec message */
-    TRY_SEND_END_OF_EARLY_DATA,     /**< sends end of early data message */
-    TRY_SEND_FINISH,                /**< sends finished message */
-    TRY_RECV_CLIENT_HELLO,          /**< attempts to receive client hello message */
-    TRY_RECV_HELLO_VERIFY_REQUEST,  /**< attempts to receive hello verify request message */
-    TRY_RECV_SERVER_HELLO,          /**< attempts to receive server hello message */
-    TRY_RECV_ENCRYPTED_EXTENSIONS,  /**< attempts to receive encrypted extensions message */
-    TRY_RECV_CERTIFICATE,           /**< attempts to receive certificate message */
-    TRY_RECV_SERVER_KEY_EXCHANGE,   /**< attempts to receive server key exchange message */
-    TRY_RECV_CERTIFICATE_REQUEST,   /**< attempts to receive certificate request message */
-    TRY_RECV_SERVER_HELLO_DONE,     /**< attempts to receive server hello done message */
-    TRY_RECV_CLIENT_KEY_EXCHANGE,   /**< attempts to receive client key exchange message */
-    TRY_RECV_CERTIFICATE_VERIFY,    /**< attempts to receive certificate verify message */
-    TRY_RECV_NEW_SESSION_TICKET,    /**< attempts to receive new session ticket message */
-    TRY_RECV_END_OF_EARLY_DATA,     /**< attempts to receive end of early data message */
-    TRY_RECV_FINISH,                /**< attempts to receive finished message */
-    HS_STATE_BUTT = 255             /**< enumerated Maximum Value */
-} HITLS_HandshakeState;
 
 #ifdef __cplusplus
 }

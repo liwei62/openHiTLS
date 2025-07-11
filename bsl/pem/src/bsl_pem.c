@@ -31,8 +31,8 @@
 int32_t BSL_PEM_GetPemRealEncode(char **encode, uint32_t *encodeLen, BSL_PEM_Symbol *symbol, char **realEncode,
     uint32_t *realLen)
 {
-    uint32_t headLen = strlen(symbol->head);
-    uint32_t tailLen = strlen(symbol->tail);
+    uint32_t headLen = (uint32_t)strlen(symbol->head);
+    uint32_t tailLen = (uint32_t)strlen(symbol->tail);
     if (*encodeLen < headLen + tailLen) {
         BSL_ERR_PUSH_ERROR(BSL_PEM_INVALID);
         return BSL_PEM_INVALID;
@@ -45,7 +45,7 @@ int32_t BSL_PEM_GetPemRealEncode(char **encode, uint32_t *encodeLen, BSL_PEM_Sym
         BSL_ERR_PUSH_ERROR(BSL_PEM_SYMBOL_NOT_FOUND);
         return BSL_PEM_SYMBOL_NOT_FOUND;
     }
-    char *end = strstr(begin, symbol->tail);
+    char *end = strstr(begin + headLen, symbol->tail);
     if (end == NULL) {
         BSL_ERR_PUSH_ERROR(BSL_PEM_SYMBOL_NOT_FOUND);
         return BSL_PEM_SYMBOL_NOT_FOUND;
@@ -142,7 +142,7 @@ int32_t BSL_PEM_EncodeAsn1ToPem(uint8_t *asn1Encode, uint32_t asn1Len, BSL_PEM_S
     return ret;
 }
 
-int32_t BSL_PEM_ParsePem2Asn1(char **encode, uint32_t *encodeLen, BSL_PEM_Symbol *symbol, uint8_t **asn1Encode,
+int32_t BSL_PEM_DecodePemToAsn1(char **encode, uint32_t *encodeLen, BSL_PEM_Symbol *symbol, uint8_t **asn1Encode,
     uint32_t *asn1Len)
 {
     char *nextEncode = *encode;
@@ -172,8 +172,8 @@ int32_t BSL_PEM_ParsePem2Asn1(char **encode, uint32_t *encodeLen, BSL_PEM_Symbol
  */
 bool BSL_PEM_IsPemFormat(char *encode, uint32_t encodeLen)
 {
-    if (encode == NULL || encodeLen < BSL_PEM_BEGIN_STR_LEN + BSL_PEM_END_STR_LEN
-        + BSL_PEM_SHORT_DASH_STR_LEN) {
+    if (encode == NULL || encodeLen < (BSL_PEM_BEGIN_STR_LEN + BSL_PEM_END_STR_LEN
+        + 2 * BSL_PEM_SHORT_DASH_STR_LEN)) {
         return false;
     }
     // match "-----BEGIN"
@@ -202,6 +202,52 @@ bool BSL_PEM_IsPemFormat(char *encode, uint32_t encodeLen)
         return false;
     }
     return true;
+}
+
+typedef struct {
+    char *type;
+    BSL_PEM_Symbol symbol;
+} PemHeaderInfo;
+
+static PemHeaderInfo g_pemHeaderInfo[] = {
+    {"PRIKEY_RSA", {BSL_PEM_RSA_PRI_KEY_BEGIN_STR, BSL_PEM_RSA_PRI_KEY_END_STR}},
+    {"PRIKEY_ECC", {BSL_PEM_EC_PRI_KEY_BEGIN_STR, BSL_PEM_EC_PRI_KEY_END_STR}},
+    {"PRIKEY_PKCS8_UNENCRYPT", {BSL_PEM_PRI_KEY_BEGIN_STR, BSL_PEM_PRI_KEY_END_STR}},
+    {"PRIKEY_PKCS8_ENCRYPT", {BSL_PEM_P8_PRI_KEY_BEGIN_STR, BSL_PEM_P8_PRI_KEY_END_STR}},
+    {"PUBKEY_SUBKEY", {BSL_PEM_PUB_KEY_BEGIN_STR, BSL_PEM_PUB_KEY_END_STR}},
+    {"PUBKEY_RSA", {BSL_PEM_RSA_PUB_KEY_BEGIN_STR, BSL_PEM_RSA_PUB_KEY_END_STR}},
+    {"CERT", {BSL_PEM_CERT_BEGIN_STR, BSL_PEM_CERT_END_STR}},
+    {"CRL", {BSL_PEM_CRL_BEGIN_STR, BSL_PEM_CRL_END_STR}},
+    {"CSR", {BSL_PEM_CERT_REQ_BEGIN_STR, BSL_PEM_CERT_REQ_END_STR}},
+};
+
+int32_t BSL_PEM_GetSymbolAndType(char *encode, uint32_t encodeLen, BSL_PEM_Symbol *symbol, char **type)
+{
+    if (symbol == NULL || type == NULL) {
+        BSL_ERR_PUSH_ERROR(BSL_NULL_INPUT);
+        return BSL_NULL_INPUT;
+    }
+
+    if (!BSL_PEM_IsPemFormat(encode, encodeLen)) {
+        BSL_ERR_PUSH_ERROR(BSL_PEM_INVALID);
+        return BSL_PEM_INVALID;
+    }
+    for (uint32_t i = 0; i < sizeof(g_pemHeaderInfo) / sizeof(g_pemHeaderInfo[0]); i++) {
+        char *beginMarker = strstr(encode, g_pemHeaderInfo[i].symbol.head);
+        if (beginMarker != NULL) {
+            char *endMarker = strstr(beginMarker + strlen(g_pemHeaderInfo[i].symbol.head),
+                g_pemHeaderInfo[i].symbol.tail);
+            if (endMarker != NULL) {
+                symbol->head = g_pemHeaderInfo[i].symbol.head;
+                symbol->tail = g_pemHeaderInfo[i].symbol.tail;
+                *type = g_pemHeaderInfo[i].type;
+                return BSL_SUCCESS;
+            }
+        }
+    }
+
+    BSL_ERR_PUSH_ERROR(BSL_PEM_SYMBOL_NOT_FOUND);
+    return BSL_PEM_SYMBOL_NOT_FOUND;
 }
 
 #endif /* HITLS_BSL_PEM */

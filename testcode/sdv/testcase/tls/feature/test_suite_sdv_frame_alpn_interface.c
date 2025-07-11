@@ -30,6 +30,7 @@
 #include "bsl_uio.h"
 #include "hitls.h"
 #include "frame_tls.h"
+#include "cert_callback.h"
 /* END_HEADER */
 
 /* UserData structure transferred from the server to the alpnCb callback */
@@ -70,7 +71,7 @@ static int32_t ConfigAlpn(HITLS_Config *tlsConfig, char *AlpnList, bool isCient)
         ret = HITLS_CFG_SetAlpnProtosSelectCb(tlsConfig, ExampleAlpnCbForLlt, &alpnServerCtx);
         ASSERT_EQ(ret, HITLS_SUCCESS);
     }
-exit:
+EXIT:
     return ret;
 }
 
@@ -86,7 +87,7 @@ exit:
 void UT_TLS_ALPN_PARSE_PROTO_FUNC_TC001(int version)
 {
     FRAME_Init();
-
+    RegDefaultMemCallback();
     HITLS_Config *s_config = NULL;
     HITLS_Config *c_config = NULL;
     FRAME_LinkObj *client = NULL;
@@ -128,7 +129,7 @@ void UT_TLS_ALPN_PARSE_PROTO_FUNC_TC001(int version)
     ASSERT_TRUE(memcmp(serverTlsCtx->negotiatedInfo.alpnSelected, "http/1.1", 8) == 0);
     ASSERT_TRUE(serverTlsCtx->negotiatedInfo.alpnSelectedSize == 8);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(s_config);
     HITLS_CFG_FreeConfig(c_config);
     FRAME_FreeLink(client);

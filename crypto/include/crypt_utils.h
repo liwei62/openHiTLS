@@ -17,12 +17,28 @@
 #define CRYPT_UTILS_H
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <stdbool.h>
+#include "bsl_err_internal.h"
+#include "crypt_errno.h"
 #include "crypt_algid.h"
+#include "crypt_local_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+#if defined(__GNUC__) || defined(__clang__)
+    #define LIKELY(x) __builtin_expect(!!(x), 1)
+    #define UNLIKELY(x) __builtin_expect(!!(x), 0)
+    #define ALIGN32     __attribute__((aligned(32)))
+    #define ALIGN64     __attribute__((aligned(64)))
+#else
+    #define LIKELY(x) x
+    #define UNLIKELY(x) x
+    #define ALIGN32
+    #define ALIGN64
+#endif
 
 #define BITS_PER_BYTE   8
 #define SHIFTS_PER_BYTE 3
@@ -34,6 +50,18 @@ do {                                         \
     (p)[(i) + 1] = (uint8_t)((v) >> 16);     \
     (p)[(i) + 2] = (uint8_t)((v) >>  8);     \
     (p)[(i) + 3] = (uint8_t)((v) >>  0);     \
+} while (0)
+
+#define PUT_UINT64_BE(v, p, i)               \
+do {                                         \
+    (p)[(i) + 0] = (uint8_t)((v) >> 56);     \
+    (p)[(i) + 1] = (uint8_t)((v) >> 48);     \
+    (p)[(i) + 2] = (uint8_t)((v) >> 40);     \
+    (p)[(i) + 3] = (uint8_t)((v) >> 32);     \
+    (p)[(i) + 4] = (uint8_t)((v) >> 24);     \
+    (p)[(i) + 5] = (uint8_t)((v) >> 16);     \
+    (p)[(i) + 6] = (uint8_t)((v) >>  8);     \
+    (p)[(i) + 7] = (uint8_t)((v) >>  0);     \
 } while (0)
 
 #define GET_UINT32_BE(p, i)                  \
@@ -100,22 +128,23 @@ do {                                         \
         } \
     } while (0)
 
-/**
- * Check whether conditions are met. If conditions are met, go to the label EXIT.
- */
-#define GOTO_EXIT_IF(condition, ret) \
-    do {                        \
-        if (condition) {        \
-            BSL_ERR_PUSH_ERROR((ret));   \
-            goto EXIT;          \
-        }                       \
+#define GOTO_ERR_IF_TRUE(condition, ret) do { \
+        if (condition) { \
+            BSL_ERR_PUSH_ERROR((ret)); \
+            goto ERR; \
+        } \
     } while (0)
 
-#define GOTO_EXIT_IF_EX(condition, ret) \
-    do {                        \
-        if (condition) {        \
-            goto EXIT;          \
-        }                       \
+/**
+ * Check whether conditions are met. If yes, an error code is returned.
+ */
+#define RETURN_RET_IF_ERR(func, ret)   \
+    do {                               \
+        (ret) = (func);                \
+        if ((ret) != CRYPT_SUCCESS) {  \
+            BSL_ERR_PUSH_ERROR((ret)); \
+            return ret;                \
+        }                              \
     } while (0)
 
 #define BREAK_IF(condition) \
@@ -208,6 +237,42 @@ do {                                         \
             }                                                   \
         }                                                       \
     } while (0)
+
+/**
+ * @brief Calculate the hash value of the input data.
+ *
+ * @param hashMethod [IN] Hash method
+ * @param hashData [IN] Hash data
+ * @param size [IN] Size of hash data
+ * @param out [OUT] Output hash value
+ */
+int32_t CalcHash(const EAL_MdMethod *hashMethod, const CRYPT_ConstData *hashData, uint32_t size,
+    uint8_t *out, uint32_t *outlen);
+
+/**
+ * @ingroup rsa
+ * @brief mgf1 of PKCS1
+ *
+ * @param hashMethod [IN] Hash method
+ * @param seed [IN] Seed
+ * @param seedLen [IN] Seed length
+ * @param mask [OUT] Mask
+ * @param maskLen [IN] Mask length
+ *
+ * @retval CRYPT_SUCCESS on success
+ */
+int32_t CRYPT_Mgf1(const EAL_MdMethod *hashMethod, const uint8_t *seed, const uint32_t seedLen,
+    uint8_t *mask, uint32_t maskLen);
+
+/**
+ * @brief Retrieves the process function callback and its arguments from a parameter list.
+ *
+ * @param params A pointer to the BSL_Param list containing the parameters.
+ * @param processCb A pointer to a pointer to the process function callback.
+ * @param args A pointer to a pointer to the process function arguments.
+ * @return int32_t Returns CRYPT_SUCCESS if the operation is successful, otherwise an error code.
+ */
+int32_t CRYPT_GetPkeyProcessParams(BSL_Param *params, CRYPT_EAL_ProcessFuncCb *processCb, void **args);
 
 /* Assumes that x is uint32_t and 0 < n < 32 */
 #define ROTL32(x, n) (((x) << (n)) | ((x) >> (32 - (n))))
@@ -314,8 +379,8 @@ static inline void Uint64ToBeBytes(uint64_t v, uint8_t *bytes)
     bytes[7] = (uint8_t)(v & 0xffu);
 }
 
-#ifdef HITLS_CRYPTO_RSA
-uint32_t CRYPT_MD_GetSizeById(CRYPT_MD_AlgId id);
+#if defined(HITLS_CRYPTO_RSA_SIGN) || defined(HITLS_CRYPTO_RSA_VERIFY)
+uint32_t CRYPT_GetMdSizeById(CRYPT_MD_AlgId id);
 #endif
 
 static inline bool ParamIdIsValid(uint32_t id, const uint32_t *list, uint32_t num)
@@ -328,35 +393,19 @@ static inline bool ParamIdIsValid(uint32_t id, const uint32_t *list, uint32_t nu
     return false;
 }
 
-static inline uint32_t Uint32ConstTimeMsb(uint32_t a)
+typedef uint32_t (*GetUintCallBack)(const void *key);
+static inline int32_t GetUintCtrl(const void *ctx, void *val, uint32_t len, GetUintCallBack getUint)
 {
-    // 31 == (4 * 8 - 1)
-    return 0u - (a >> 31);
-}
-
-static inline uint32_t Uint32ConstTimeIsZero(uint32_t a)
-{
-    return Uint32ConstTimeMsb(~a & (a - 1));
-}
-
-static inline uint32_t Uint32ConstTimeEqual(uint32_t a, uint32_t b)
-{
-    return Uint32ConstTimeIsZero(a ^ b);
-}
-// (mask & a) | (~mask & b)
-static inline uint32_t Uint32ConstTimeSelect(uint32_t mask, uint32_t a, uint32_t b)
-{
-    return ((mask) & a) | ((~mask) & b);
-}
-
-static inline uint32_t Uint32ConstTimeLt(uint32_t a, uint32_t b)
-{
-    return Uint32ConstTimeMsb(a ^ ((a ^ b) | ((a - b) ^ a)));
-}
-
-static inline uint32_t Uint32ConstTimeGt(uint32_t a, uint32_t b)
-{
-    return ~Uint32ConstTimeLt(a, b);
+    if (val == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
+    if (len != sizeof(uint32_t)) {
+        BSL_ERR_PUSH_ERROR(CRYPT_INVALID_ARG);
+        return CRYPT_INVALID_ARG;
+    }
+    *(uint32_t *)val = getUint(ctx);
+    return CRYPT_SUCCESS;
 }
 
 void GetCpuInstrSupportState(void);
@@ -385,6 +434,7 @@ typedef struct {
 bool IsSupportAES(void);
 bool IsSupportBMI1(void);
 bool IsSupportBMI2(void);
+bool IsSupportADX(void);
 bool IsSupportAVX(void);
 bool IsSupportAVX2(void);
 bool IsSupportSSE(void);

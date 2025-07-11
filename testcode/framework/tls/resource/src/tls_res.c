@@ -145,12 +145,12 @@ int InsertSslToList(void *ctx, void *ssl)
     return InsertResToList(sslList, sslRes);
 }
 
-ResList *GetCtxList()
+ResList *GetCtxList(void)
 {
     return &g_ctxList;
 }
 
-ResList *GetSslList()
+ResList *GetSslList(void)
 {
     return &g_sslList;
 }
@@ -283,8 +283,7 @@ void FreeTlsResList(void)
 
     // Clearing CTX Resources
     ResList *ctxList = GetCtxList();
-    void *resCtx;
-    resCtx =  GetLastResFromList(ctxList);
+    void *resCtx = GetLastResFromList(ctxList);
     while (resCtx != NULL) {
         FreeCtx(type, resCtx);
         resCtx =  GetLastResFromList(ctxList);
@@ -293,8 +292,7 @@ void FreeTlsResList(void)
 
     // Clearing SSL Resources
     ResList *sslList = GetSslList();
-    void *sslRes;
-    sslRes =  GetLastResFromList(sslList);
+    void *sslRes = GetLastResFromList(sslList);
     while (sslRes != NULL) {
         FreeSsl(type, sslRes);
         sslRes =  GetLastResFromList(sslList);

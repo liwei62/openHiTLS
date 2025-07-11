@@ -17,83 +17,95 @@
 #ifdef HITLS_CRYPTO_ENTROPY
 
 #include <stdint.h>
-
+#include "securec.h"
 #include "bsl_err_internal.h"
 #include "bsl_sal.h"
 #include "crypt_algid.h"
 #include "crypt_errno.h"
-#include "securec.h"
-#include "entropy.h"
-
-static EntropyCtx g_entropyCtx = { 0 };
-
-static uint32_t ECFAlgidValidCheck(uint32_t algId)
-{
-    uint32_t algTable[] = {
-        CRYPT_MD_SHA224, CRYPT_MD_SHA256, CRYPT_MD_SHA384, CRYPT_MD_SHA512,
-        CRYPT_MD_SHA3_224, CRYPT_MD_SHA3_256, CRYPT_MD_SHA3_384, CRYPT_MD_SHA3_512,
-        CRYPT_MAC_HMAC_SHA224, CRYPT_MAC_HMAC_SHA256, CRYPT_MAC_HMAC_SHA384, CRYPT_MAC_HMAC_SHA512,
-        CRYPT_MAC_HMAC_SHA3_224, CRYPT_MAC_HMAC_SHA3_256, CRYPT_MAC_HMAC_SHA3_384, CRYPT_MAC_HMAC_SHA3_512
-    };
-    for (uint32_t iter = 0; iter < sizeof(algTable) / sizeof(algTable[0]); iter++) {
-        if (algId == algTable[iter]) {
-            return CRYPT_SUCCESS;
-        }
-    }
-    BSL_ERR_PUSH_ERROR(CRYPT_ENTROPY_ECF_ALG_ERROR);
-    return CRYPT_ENTROPY_ECF_ALG_ERROR;
-}
-
-EntropyCtx *ENTROPY_GetCtx(ExternalConditioningFunction conFunc, uint32_t algId)
-{
-    if (ECFAlgidValidCheck(algId) != CRYPT_SUCCESS || conFunc == NULL) {
-        return NULL;
-    }
-    g_entropyCtx.algId = algId;
-    g_entropyCtx.conFunc = conFunc;
-    return &g_entropyCtx;
-}
+#include "crypt_utils.h"
+#include "crypt_entropy.h"
 
 #define ECF_MAX_OUTPUT_LEN 64
-#define ECF_ADDITION_LEN 8 // reference nist-800 90c-3pd section 3.3.2
+#define ECF_ADDITION_ENTROPY 64 // reference nist-800 90c-3pd section 3.3.2
+#define ECF_BYTE_TO_BIT 8
 
-int32_t ENTROPY_GetFullEntropyInput(void *ctx, uint8_t *data, uint32_t len)
+static int32_t EntropyEcf(ENTROPY_ECFCtx *enCtx, uint8_t *data, uint32_t dataLen, uint8_t *out, uint32_t *outLen)
 {
-    EntropyCtx *enCtx = (EntropyCtx *)ctx;
-    uint8_t *ptr = data;
-    uint32_t remainLen = len;
-    int32_t ret = CRYPT_SUCCESS;
-    if (enCtx == NULL) {
-        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
-        return CRYPT_NULL_INPUT;
+    uint8_t conData[ECF_MAX_OUTPUT_LEN] = {0};
+    uint32_t conLen = ECF_MAX_OUTPUT_LEN;
+    int32_t ret = enCtx->conFunc(enCtx->algId, data, dataLen, conData, &conLen);
+    if (ret != CRYPT_SUCCESS) {
+        BSL_ERR_PUSH_ERROR(ret);
+        return ret;
     }
-    uint32_t oneLen = len + ECF_ADDITION_LEN;
-    uint8_t *tmp = BSL_SAL_Malloc(oneLen);
-    if (tmp == NULL) {
+    uint32_t cpLen = (conLen > *outLen) ? *outLen : conLen;
+    (void)memcpy_s(out, cpLen, conData, cpLen);
+    (void)memset_s(conData, conLen, 0, conLen);
+    *outLen = cpLen;
+    return CRYPT_SUCCESS;
+}
+
+int32_t ENTROPY_GetFullEntropyInput(void *ctx, ENTROPY_SeedPool *pool, bool isNpesUsed, uint32_t needEntropy,
+    uint8_t *data, uint32_t len)
+{
+    int32_t ret = CRYPT_SUCCESS;
+    uint8_t *ptr = data;
+    if (ENTROPY_SeedPoolGetMinEntropy(pool) == 0) {
+        return CRYPT_INVALID_ARG;
+    }
+    ENTROPY_ECFCtx *enCtx = (ENTROPY_ECFCtx *)ctx;
+    if (enCtx == NULL || enCtx->conFunc == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_ENTROPY_ECF_IS_ERROR);
+        return CRYPT_ENTROPY_ECF_IS_ERROR;
+    }
+    uint32_t conEnt = enCtx->outLen * ECF_BYTE_TO_BIT;
+    uint32_t tmpEntropy = conEnt + ECF_ADDITION_ENTROPY;
+    uint32_t tmpDataLen = (tmpEntropy + ECF_BYTE_TO_BIT - 1) / ENTROPY_SeedPoolGetMinEntropy(pool);
+    uint8_t *tmpData = BSL_SAL_Malloc(tmpDataLen);
+    if (tmpData == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
         return CRYPT_MEM_ALLOC_FAIL;
     }
-    do {
-        ret = ENTROPY_GetRandom(tmp, oneLen);
-        if (ret != CRYPT_SUCCESS) {
-            BSL_ERR_PUSH_ERROR(ret);
-            break;
+    uint32_t remEnt = needEntropy;
+    uint32_t remLen = len;
+    while (remEnt > 0) {
+        uint32_t tmpLen = tmpDataLen;
+        uint32_t oneEnt = (remEnt < conEnt) ? remEnt : conEnt;
+        uint32_t entropy = ENTROPY_SeedPoolCollect(pool, isNpesUsed, oneEnt, tmpData, &tmpLen);
+        if (entropy < oneEnt) {
+            GOTO_ERR_IF(CRYPT_SEED_POOL_NOT_MEET_REQUIREMENT, ret);
         }
-        uint8_t conData[ECF_MAX_OUTPUT_LEN] = {0};
-        uint32_t conLen = ECF_MAX_OUTPUT_LEN;
-        ret = enCtx->conFunc(enCtx->algId, tmp, oneLen, conData, &conLen);
-        (void)memset_s(tmp, oneLen, 0, oneLen);
-        if (ret != CRYPT_SUCCESS) {
-            BSL_ERR_PUSH_ERROR(ret);
-            break;
+        uint32_t cpLen;
+        /* If the data of the length specified by tmpLen can be provided, the value is the full entropy (tmpLen * 8). */
+        if (tmpLen * ECF_BYTE_TO_BIT == entropy) {
+            cpLen = tmpLen < remLen ? tmpLen : remLen;
+            (void)memcpy_s(ptr, remLen, tmpData, cpLen);
+            remEnt -= ((entropy > remEnt) ? remEnt : entropy);
+        } else {
+            uint32_t leftLen = tmpDataLen - tmpLen;
+            uint32_t leftEnt = ENTROPY_SeedPoolCollect(pool, isNpesUsed, tmpEntropy - entropy, tmpData + tmpLen,
+                &leftLen);
+            if (leftEnt < tmpEntropy - entropy) {
+                GOTO_ERR_IF(CRYPT_SEED_POOL_NOT_MEET_REQUIREMENT, ret);
+            }
+            cpLen = remLen;
+            GOTO_ERR_IF(EntropyEcf(ctx, tmpData, tmpLen + leftLen, ptr, &cpLen), ret);
+            remEnt -= (remEnt < conEnt ? remEnt : conEnt);
         }
-        uint32_t cpLen = (conLen > remainLen) ? remainLen : conLen;
-        (void)memcpy_s(ptr, remainLen, conData, cpLen);
-        remainLen -= cpLen;
         ptr += cpLen;
-        (void)memset_s(conData, conLen, 0, conLen);
-    } while (remainLen > 0);
-    BSL_SAL_FREE(tmp);
+        remLen -= cpLen;
+    }
+    if (remLen > 0) {
+        uint32_t leftLen = remLen;
+        uint32_t entropy = ENTROPY_SeedPoolCollect(pool, true, 0, ptr, &leftLen);
+        if (entropy == 0 || leftLen < remLen) {
+            GOTO_ERR_IF(CRYPT_SEED_POOL_NOT_MEET_REQUIREMENT, ret);
+        }
+    }
+ERR:
+    (void)memset_s(tmpData, tmpDataLen, 0, tmpDataLen);
+    BSL_SAL_FREE(tmpData);
     return ret;
 }
+
 #endif /* HITLS_CRYPTO_ENTROPY */

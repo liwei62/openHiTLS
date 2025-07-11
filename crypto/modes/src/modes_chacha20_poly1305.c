@@ -14,7 +14,7 @@
  */
 
 #include "hitls_build.h"
-#ifdef HITLS_CRYPTO_CHACHA20POLY1305
+#if defined(HITLS_CRYPTO_CHACHA20) && defined(HITLS_CRYPTO_CHACHA20POLY1305)
 
 #include <stdint.h>
 #include "securec.h"
@@ -22,8 +22,9 @@
 #include "bsl_err_internal.h"
 #include "crypt_utils.h"
 #include "crypt_errno.h"
+#include "modes_local.h"
 #include "poly1305_core.h"
-
+#include "crypt_modes.h"
 
 void Poly1305SetKey(Poly1305Ctx *ctx, const uint8_t key[POLY1305_KEYSIZE])
 {
@@ -55,7 +56,9 @@ void Poly1305SetKey(Poly1305Ctx *ctx, const uint8_t key[POLY1305_KEYSIZE])
     ctx->acc[4] = 0;
     ctx->acc[5] = 0;
 
+    (void)memset_s(ctx->last, sizeof(ctx->last), 0, sizeof(ctx->last));
     ctx->lastLen = 0;
+    Poly1305InitForAsm(ctx); // Information such as tables required for initializing the assembly
 }
 
 void Poly1305Update(Poly1305Ctx *ctx, const uint8_t *data, uint32_t dataLen)
@@ -118,74 +121,14 @@ void Poly1305Final(Poly1305Ctx *ctx, uint8_t mac[POLY1305_TAGSIZE])
     Poly1305Last(ctx, mac);
 }
 
-int32_t MODES_CHACHA20POLY1305_InitCtx(MODES_CHACHA20POLY1305_Ctx *ctx, const struct EAL_CipherMethod *m)
-{
-    if (ctx == NULL || m == NULL) {
-        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
-        return CRYPT_NULL_INPUT;
-    }
-    (void)memset_s(ctx, sizeof(MODES_CHACHA20POLY1305_Ctx), 0, sizeof(MODES_CHACHA20POLY1305_Ctx));
-    ctx->method = m;
-    ctx->key = BSL_SAL_Malloc(m->ctxSize);
-    if (ctx->key == NULL) {
-        BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
-        return CRYPT_MEM_ALLOC_FAIL;
-    }
-    (void)memset_s(ctx->key, m->ctxSize, 0, m->ctxSize);
-    return CRYPT_SUCCESS;
-}
 
-void MODES_CHACHA20POLY1305_DeinitCtx(MODES_CHACHA20POLY1305_Ctx *ctx)
-{
-    if (ctx == NULL) {
-        return;
-    }
-    if (ctx->method != NULL) {
-        BSL_SAL_CleanseData(ctx->key, ctx->method->ctxSize);
-    }
-    BSL_SAL_FREE(ctx->key);
-    (void)memset_s(ctx, sizeof(MODES_CHACHA20POLY1305_Ctx), 0, sizeof(MODES_CHACHA20POLY1305_Ctx));
-}
-
-void MODES_CHACHA20POLY1305_Clean(MODES_CHACHA20POLY1305_Ctx *ctx)
-{
-    if (ctx == NULL) {
-        return;
-    }
-    if (ctx->method != NULL) {
-        BSL_SAL_CleanseData((void *)(ctx->key), ctx->method->ctxSize);
-    }
-    BSL_SAL_CleanseData((void *)(&(ctx->polyCtx)), sizeof(Poly1305Ctx));
-    ctx->aadLen = 0;
-    ctx->cipherTextLen = 0;
-    Poly1305CleanRegister();
-}
-
-int32_t MODES_CHACHA20POLY1305_SetEncryptKey(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *key, uint32_t len)
-{
-    if (ctx == NULL) {
-        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
-        return CRYPT_NULL_INPUT;
-    }
-    return ctx->method->setEncryptKey(ctx->key, key, len);
-}
-
-int32_t MODES_CHACHA20POLY1305_SetDecryptKey(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *key, uint32_t len)
-{
-    if (ctx == NULL) {
-        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
-        return CRYPT_NULL_INPUT;
-    }
-    return ctx->method->setDecryptKey(ctx->key, key, len);
-}
-
-int32_t MODES_CHACHA20POLY1305_Encrypt(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *in, uint8_t *out, uint32_t len)
+int32_t MODES_CHACHA20POLY1305_Encrypt(MODES_CipherChaChaPolyCtx *ctx, const uint8_t *in, uint8_t *out, uint32_t len)
 {
     if (ctx == NULL || in == NULL || out == NULL || len == 0) {
         BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
         return CRYPT_NULL_INPUT;
     }
-    int32_t ret = ctx->method->encrypt(ctx->key, in, out, len);
+    int32_t ret = ctx->method->encryptBlock(ctx->key, in, out, len);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
         return ret;
@@ -195,7 +138,7 @@ int32_t MODES_CHACHA20POLY1305_Encrypt(MODES_CHACHA20POLY1305_Ctx *ctx, const ui
     return CRYPT_SUCCESS;
 }
 
-int32_t MODES_CHACHA20POLY1305_Decrypt(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *in, uint8_t *out, uint32_t len)
+int32_t MODES_CHACHA20POLY1305_Decrypt(MODES_CipherChaChaPolyCtx *ctx, const uint8_t *in, uint8_t *out, uint32_t len)
 {
     if (ctx == NULL || in == NULL || out == NULL || len == 0) {
         BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
@@ -203,14 +146,14 @@ int32_t MODES_CHACHA20POLY1305_Decrypt(MODES_CHACHA20POLY1305_Ctx *ctx, const ui
     }
     Poly1305Update(&(ctx->polyCtx), in, len);
     ctx->cipherTextLen += (uint64_t)len;
-    int32_t ret = ctx->method->decrypt(ctx->key, in, out, len);
+    int32_t ret = ctx->method->decryptBlock(ctx->key, in, out, len);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
     }
     return ret;
 }
 
-static void CipherTextPad(MODES_CHACHA20POLY1305_Ctx *ctx)
+static void CipherTextPad(MODES_CipherChaChaPolyCtx *ctx)
 {
     /**
      * The ciphertext
@@ -240,7 +183,7 @@ static void CipherTextPad(MODES_CHACHA20POLY1305_Ctx *ctx)
     Poly1305Update(polyCtx, pad, POLY1305_BLOCKSIZE);
 }
 
-static int32_t GetTag(MODES_CHACHA20POLY1305_Ctx *ctx, uint8_t *val, uint32_t len)
+static int32_t GetTag(MODES_CipherChaChaPolyCtx *ctx, uint8_t *val, uint32_t len)
 {
     if (val == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
@@ -255,7 +198,7 @@ static int32_t GetTag(MODES_CHACHA20POLY1305_Ctx *ctx, uint8_t *val, uint32_t le
     return CRYPT_SUCCESS;
 }
 
-static int32_t SetIv(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *iv, uint32_t ivLen)
+static int32_t SetIv(MODES_CipherChaChaPolyCtx *ctx, const uint8_t *iv, uint32_t ivLen)
 {
     /**
      * RFC_7539-2.6
@@ -280,12 +223,12 @@ static int32_t SetIv(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *iv, uint32_
     uint8_t block[POLY1305_KEYSIZE] = { 0 };
     if (ivLen == 8) { // If the length of the IV is 8, 0 data must be padded before.
         uint8_t tmpBuff[12] = { 0 };
-        (void)memcpy_s(tmpBuff + 4, 12 - 4, iv, ivLen);
-        ret = ctx->method->ctrl(ctx->key, CRYPT_CTRL_SET_IV, tmpBuff, 12);
+        (void)memcpy_s(tmpBuff + 4, sizeof(tmpBuff) - 4, iv, ivLen); // // 4 bytes 0 data must be padded before.
+        ret = ctx->method->cipherCtrl(ctx->key, CRYPT_CTRL_SET_IV, tmpBuff, sizeof(tmpBuff));
         // Clear sensitive data.
         (void)BSL_SAL_CleanseData(tmpBuff, sizeof(tmpBuff));
     } else {
-        ret = ctx->method->ctrl(ctx->key, CRYPT_CTRL_SET_IV, (void *)(uintptr_t)iv, ivLen);
+        ret = ctx->method->cipherCtrl(ctx->key, CRYPT_CTRL_SET_IV, (void *)(uintptr_t)iv, ivLen);
     }
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
@@ -296,12 +239,12 @@ static int32_t SetIv(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *iv, uint32_
      * The block counter is set to zero
      */
     uint8_t initCount[4] = { 0 };
-    ret = ctx->method->ctrl(ctx->key, CRYPT_CTRL_SET_COUNT, initCount, sizeof(initCount));
+    ret = ctx->method->cipherCtrl(ctx->key, CRYPT_CTRL_SET_COUNT, initCount, sizeof(initCount));
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
         return ret;
     }
-    ret = ctx->method->encrypt(ctx->key, block, block, POLY1305_KEYSIZE);
+    ret = ctx->method->encryptBlock(ctx->key, block, block, POLY1305_KEYSIZE);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
         return ret;
@@ -314,7 +257,7 @@ static int32_t SetIv(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *iv, uint32_
      * counter set to 1
      */
     initCount[0] = 0x01;
-    ret = ctx->method->ctrl(ctx->key, CRYPT_CTRL_SET_COUNT, initCount, sizeof(initCount)); // 4bytes count
+    ret = ctx->method->cipherCtrl(ctx->key, CRYPT_CTRL_SET_COUNT, initCount, sizeof(initCount)); // 4bytes count
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
     }
@@ -325,7 +268,7 @@ static int32_t SetIv(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *iv, uint32_
 }
 
 // Set the AAD information. The AAD information can be set only once.
-static int32_t SetAad(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *aad, uint32_t aadLen)
+static int32_t SetAad(MODES_CipherChaChaPolyCtx *ctx, const uint8_t *aad, uint32_t aadLen)
 {
     /**
      * RFC_7539-2.8
@@ -335,16 +278,16 @@ static int32_t SetAad(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *aad, uint3
      * length of the AAD was already an integral multiple of 16 bytes,
      * this field is zero-length.
      */
+    if (ctx->aadLen != 0 || ctx->cipherTextLen != 0) { // aad is set
+        BSL_ERR_PUSH_ERROR(CRYPT_MODES_AAD_REPEAT_SET_ERROR);
+        return CRYPT_MODES_AAD_REPEAT_SET_ERROR;
+    }
     if (aadLen == 0) {
         return CRYPT_SUCCESS;
     }
     if (aad == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
         return CRYPT_NULL_INPUT;
-    }
-    if (ctx->aadLen != 0) { // aad is set
-        BSL_ERR_PUSH_ERROR(CRYPT_MODES_AAD_REPEAT_SET_ERROR);
-        return CRYPT_MODES_AAD_REPEAT_SET_ERROR;
     }
     const uint8_t pad[16] = { 0 };
     ctx->aadLen = aadLen;
@@ -354,21 +297,144 @@ static int32_t SetAad(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *aad, uint3
     return CRYPT_SUCCESS;
 }
 
-int32_t MODES_CHACHA20POLY1305_Ctrl(MODES_CHACHA20POLY1305_Ctx *ctx, CRYPT_CipherCtrl opt, void *val, uint32_t len)
+int32_t MODES_CHACHA20POLY1305_SetEncryptKey(MODES_CipherChaChaPolyCtx *ctx, const uint8_t *key, uint32_t len)
 {
     if (ctx == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
         return CRYPT_NULL_INPUT;
     }
+    return ctx->method->setEncryptKey(ctx->key, key, len);
+}
+int32_t MODES_CHACHA20POLY1305_SetDecryptKey(MODES_CipherChaChaPolyCtx *ctx, const uint8_t *key, uint32_t len)
+{
+    if (ctx == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
+    return ctx->method->setDecryptKey(ctx->key, key, len);
+}
+int32_t MODES_CHACHA20POLY1305_Ctrl(MODES_CHACHAPOLY_Ctx *modeCtx, int32_t opt, void *val, uint32_t len)
+{
+    if (modeCtx == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_INVALID_ARG);
+        return CRYPT_INVALID_ARG;
+    }
+    
     switch (opt) {
-        case CRYPT_CTRL_SET_IV:
-            return SetIv(ctx, val, len);
+        case CRYPT_CTRL_REINIT_STATUS:
+            return SetIv(&modeCtx->chachaCtx, val, len);
         case CRYPT_CTRL_GET_TAG:
-            return GetTag(ctx, val, len);
+            return GetTag(&modeCtx->chachaCtx, val, len);
         case CRYPT_CTRL_SET_AAD:
-            return SetAad(ctx, val, len);
+            return SetAad(&modeCtx->chachaCtx, val, len);
+        case CRYPT_CTRL_GET_BLOCKSIZE:
+            if (val == NULL || len != sizeof(uint32_t)) {
+                return CRYPT_INVALID_ARG;
+            }
+            *(int32_t *)val = 1;
+            return CRYPT_SUCCESS;
         default:
-            return ctx->method->ctrl(ctx->key, opt, val, len);
+            if (modeCtx->chachaCtx.method == NULL ||
+                modeCtx->chachaCtx.method->cipherCtrl == NULL) {
+                BSL_ERR_PUSH_ERROR(CRYPT_MODES_CTRL_TYPE_ERROR);
+                return CRYPT_MODES_CTRL_TYPE_ERROR;
+            }
+            return modeCtx->chachaCtx.method->cipherCtrl(modeCtx->chachaCtx.key, opt, val, len);
     }
 }
+
+MODES_CHACHAPOLY_Ctx *MODES_CHACHA20POLY1305_NewCtx(int32_t algId)
+{
+    const EAL_SymMethod *method = EAL_GetSymMethod(algId);
+    if (method == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_INVALID_ARG);
+        return NULL;
+    }
+    MODES_CHACHAPOLY_Ctx *ctx = BSL_SAL_Calloc(1, sizeof(MODES_CHACHAPOLY_Ctx));
+    if (ctx == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
+        return ctx;
+    }
+    ctx->algId = algId;
+
+    ctx->chachaCtx.key = BSL_SAL_Calloc(1, method->ctxSize);
+    if (ctx->chachaCtx.key  == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
+        BSL_SAL_Free(ctx);
+        return NULL;
+    }
+
+    ctx->chachaCtx.method = method;
+    return ctx;
+}
+
+int32_t MODES_CHACHA20POLY1305_InitCtx(MODES_CHACHAPOLY_Ctx *modeCtx, const uint8_t *key, uint32_t keyLen,
+    const uint8_t *iv, uint32_t ivLen, void *param, bool enc)
+{
+    (void)param;
+    if (modeCtx == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
+    int32_t ret = enc ? modeCtx->chachaCtx.method->setEncryptKey(modeCtx->chachaCtx.key, key, keyLen) :
+        modeCtx->chachaCtx.method->setDecryptKey(modeCtx->chachaCtx.key, key, keyLen);
+    if (ret != CRYPT_SUCCESS) {
+        BSL_ERR_PUSH_ERROR(ret);
+        return ret;
+    }
+    ret = SetIv(&modeCtx->chachaCtx, iv, ivLen);
+    if (ret != CRYPT_SUCCESS) {
+        modeCtx->chachaCtx.method->cipherDeInitCtx(modeCtx->chachaCtx.key);
+        BSL_ERR_PUSH_ERROR(ret);
+        return ret;
+    }
+    modeCtx->enc = enc;
+    return ret;
+}
+
+int32_t MODES_CHACHA20POLY1305_Update(MODES_CHACHAPOLY_Ctx *modeCtx, const uint8_t *in, uint32_t inLen,
+    uint8_t *out, uint32_t *outLen)
+{
+    if (modeCtx == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
+    return MODES_CipherStreamProcess(modeCtx->enc ? MODES_CHACHA20POLY1305_Encrypt : MODES_CHACHA20POLY1305_Decrypt,
+        &modeCtx->chachaCtx, in, inLen, out, outLen);
+}
+
+int32_t MODES_CHACHA20POLY1305_Final(MODES_CHACHAPOLY_Ctx *modeCtx, uint8_t *out, uint32_t *outLen)
+{
+    (void) modeCtx;
+    (void) out;
+    (void) outLen;
+    return CRYPT_EAL_CIPHER_FINAL_WITH_AEAD_ERROR;
+}
+
+int32_t MODES_CHACHA20POLY1305_DeInitCtx(MODES_CHACHAPOLY_Ctx *modeCtx)
+{
+    if (modeCtx == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
+
+    modeCtx->chachaCtx.method->cipherDeInitCtx(modeCtx->chachaCtx.key);
+    BSL_SAL_CleanseData((void *)(&(modeCtx->chachaCtx.polyCtx)), sizeof(Poly1305Ctx));
+    modeCtx->chachaCtx.aadLen = 0;
+    modeCtx->chachaCtx.cipherTextLen = 0;
+    Poly1305CleanRegister();
+    return CRYPT_SUCCESS;
+}
+
+void MODES_CHACHA20POLY1305_FreeCtx(MODES_CHACHAPOLY_Ctx *modeCtx)
+{
+    if (modeCtx == NULL) {
+        return;
+    }
+
+    modeCtx->chachaCtx.method->cipherDeInitCtx(modeCtx->chachaCtx.key);
+    BSL_SAL_FREE(modeCtx->chachaCtx.key);
+    BSL_SAL_ClearFree(modeCtx, sizeof(MODES_CHACHAPOLY_Ctx));
+}
+
 #endif

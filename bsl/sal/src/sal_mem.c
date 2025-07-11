@@ -34,7 +34,7 @@ void *BSL_SAL_Malloc(uint32_t size)
     if (size == 0) {
         return NULL;
     }
-#ifdef HITLS_BSL_SAL_MEM
+#if defined(HITLS_BSL_SAL_MEM) && defined(HITLS_BSL_SAL_LINUX)
     return SAL_MallocImpl(size);
 #else
     return NULL;
@@ -44,7 +44,7 @@ void *BSL_SAL_Malloc(uint32_t size)
 void BSL_SAL_Free(void *value)
 {
     if (g_memCallback.pfFree == NULL || g_memCallback.pfFree == BSL_SAL_Free) {
-#ifdef HITLS_BSL_SAL_MEM
+#if defined(HITLS_BSL_SAL_MEM) && defined(HITLS_BSL_SAL_LINUX)
         SAL_FreeImpl(value);
 #endif
         return;
@@ -122,15 +122,13 @@ void *BSL_SAL_Dump(const void *src, uint32_t size)
     return ptr;
 }
 
-int32_t BSL_SAL_RegMemCallback(BSL_SAL_MemCallback *cb)
+int32_t SAL_MemCallBack_Ctrl(BSL_SAL_CB_FUNC_TYPE type, void *funcCb)
 {
-    if ((cb == NULL) || (cb->pfMalloc == NULL) || (cb->pfFree == NULL)) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID05011, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "invalid params", 0, 0, 0, 0);
+    if (type > BSL_SAL_MEM_FREE || type < BSL_SAL_MEM_MALLOC) {
         return BSL_SAL_ERR_BAD_PARAM;
     }
-    g_memCallback.pfMalloc = cb->pfMalloc;
-    g_memCallback.pfFree = cb->pfFree;
+    uint32_t offset = (uint32_t)(type - BSL_SAL_MEM_MALLOC);
+    ((void **)&g_memCallback)[offset] = funcCb;
     return BSL_SUCCESS;
 }
 
@@ -174,7 +172,7 @@ static void CleanSensitiveDataLess16Byte(void *buf, uint32_t bufLen)
         /* FALLTHRU */
         case 2: *(tmp++) = (uint8_t)0;
         /* FALLTHRU */
-        case 1: *(tmp++) = (uint8_t)0;
+        case 1: *(tmp) = (uint8_t)0;
         /* FALLTHRU */
         default:
             break;

@@ -14,6 +14,7 @@
  */
 
 #include <string.h>
+#include "hitls_build.h"
 #include "securec.h"
 #include "tls_binlog_id.h"
 #include "bsl_log_internal.h"
@@ -23,14 +24,13 @@
 #include "hitls_error.h"
 #include "transcript_hash.h"
 
-
-int32_t VERIFY_SetHash(VerifyCtx *ctx, HITLS_HashAlgo hashAlgo)
+int32_t VERIFY_SetHash(HITLS_Lib_Ctx *libCtx, const char *attrName, VerifyCtx *ctx, HITLS_HashAlgo hashAlgo)
 {
     int32_t ret;
     /* the value must be the same as the PRF function, use the digest algorithm with SHA-256 or higher strength */
     HITLS_HashAlgo prfAlgo = (hashAlgo == HITLS_HASH_SHA1) ? HITLS_HASH_SHA_256 : hashAlgo;
 
-    ctx->hashCtx = SAL_CRYPT_DigestInit(prfAlgo);
+    ctx->hashCtx = SAL_CRYPT_DigestInit(libCtx, attrName, prfAlgo);
     if (ctx->hashCtx == NULL) {
         BSL_ERR_PUSH_ERROR(HITLS_CRYPT_ERR_DIGEST);
         BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15716, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
@@ -54,7 +54,7 @@ int32_t VERIFY_SetHash(VerifyCtx *ctx, HITLS_HashAlgo hashAlgo)
     return HITLS_SUCCESS;
 }
 
-HsMsgCache *GetLastCache(HsMsgCache *dataBuf)
+static HsMsgCache *GetLastCache(HsMsgCache *dataBuf)
 {
     HsMsgCache *cacheBuf = dataBuf;
     while (cacheBuf->next != NULL) {
@@ -63,7 +63,7 @@ HsMsgCache *GetLastCache(HsMsgCache *dataBuf)
     return cacheBuf;
 }
 
-int32_t CacheMsgData(HsMsgCache *dataBuf, const uint8_t *data, uint32_t len)
+static int32_t CacheMsgData(HsMsgCache *dataBuf, const uint8_t *data, uint32_t len)
 {
     HsMsgCache *lastCache = GetLastCache(dataBuf);
 
@@ -75,6 +75,7 @@ int32_t CacheMsgData(HsMsgCache *dataBuf, const uint8_t *data, uint32_t len)
         return HITLS_MEMALLOC_FAIL;
     }
 
+    BSL_SAL_FREE(lastCache->data);
     lastCache->data = BSL_SAL_Dump(data, len);
     if (lastCache->data == NULL) {
         BSL_SAL_FREE(lastCache->next);
@@ -101,10 +102,7 @@ int32_t VERIFY_Append(VerifyCtx *ctx, const uint8_t *data, uint32_t len)
     }
 
     if (ctx->dataBuf != NULL) {
-        ret = CacheMsgData(ctx->dataBuf, data, len);
-        if (ret != HITLS_SUCCESS) {
-            return ret;
-        }
+        return CacheMsgData(ctx->dataBuf, data, len);
     }
     return HITLS_SUCCESS;
 }
@@ -127,7 +125,6 @@ int32_t VERIFY_CalcSessionHash(VerifyCtx *ctx, uint8_t *digest, uint32_t *digest
     if (ret != HITLS_SUCCESS) {
         BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15722, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
             "Verify data calculate error: digest final fail.", 0, 0, 0, 0);
-        return ret;
     }
 
     return ret;

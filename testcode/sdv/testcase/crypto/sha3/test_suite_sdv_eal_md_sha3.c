@@ -51,7 +51,7 @@ void Sha3MultiThreadTest(void *arg)
         ASSERT_COMPARE("hash result cmp", out, outLen, threadParameter->hash, threadParameter->hashLen);
     }
 
-exit:
+EXIT:
     CRYPT_EAL_MdFreeCtx(ctx);
 }
 
@@ -85,7 +85,7 @@ void SDV_CRYPT_EAL_SHA3_API_TC001(void)
 
     // The length of the SHAKE256 digest is 0.
     ASSERT_EQ(CRYPT_EAL_MdGetDigestSize(CRYPT_MD_SHAKE256), 0);
-exit:
+EXIT:
     return;
 }
 /* END_CASE */
@@ -95,21 +95,28 @@ exit:
  * @title  update and final test.
  * @precon nan
  * @brief
- *    1.Call CRYPT_EAL_MdNewCtx create the CTX, expected result 1.
- *    2.Call CRYPT_EAL_MdUpdate and CRYPT_EAL_MdFinal before initialization, expected result 2.
- *    3.Call CRYPT_EAL_MdUpdate and CRYPT_EAL_MdFinal use null pointer, expected result 3.
- *    4.Call CRYPT_EAL_MdUpdate and CRYPT_EAL_MdFinal normally, expected result 4.
+ *    1.Call CRYPT_EAL_MdDeinit the null CTX, expected result 1.
+ *    2.Call CRYPT_EAL_MdNewCtx create the CTX, expected result 2.
+ *    3.Call CRYPT_EAL_MdUpdate and CRYPT_EAL_MdFinal before initialization, expected result 3.
+ *    4.Call CRYPT_EAL_MdUpdate and CRYPT_EAL_MdFinal use null pointer, expected result 4.
+ *    5.Call CRYPT_EAL_MdUpdate and CRYPT_EAL_MdFinal normally, expected result 5.
+ *    6.Call CRYPT_EAL_MdDeinit the CTX, expected result 6.
  * @expect
- *    1.Create successful.
- *    2.Return CRYPT_EAL_ERR_STATE.
- *    3.Return CRYPT_NULL_INPUT.
- *    4.Successful.
+ *    1.Return CRYPT_NULL_INPUT
+ *    2.Create successful.
+ *    3.Return CRYPT_EAL_ERR_STATE.
+ *    4.Return CRYPT_NULL_INPUT.
+ *    5.Successful.
+ *    6.Return CRYPT_SUCCESS
  */
 /* BEGIN_CASE */
 void SDV_CRYPT_EAL_SHA3_API_TC002(int algId)
 {
     TestMemInit();
     CRYPT_EAL_MdCTX *sha3Ctx = NULL;
+
+    ASSERT_EQ(CRYPT_EAL_MdDeinit(sha3Ctx), CRYPT_NULL_INPUT);
+
     uint8_t data[10] = {0x0e};
     uint32_t dataLen = 1;
     uint8_t output[SHA3_OUTPUT_MAXSIZE];
@@ -134,7 +141,11 @@ void SDV_CRYPT_EAL_SHA3_API_TC002(int algId)
 
     outLen = CRYPT_EAL_MdGetDigestSize(algId);
     ASSERT_EQ(CRYPT_EAL_MdFinal(sha3Ctx, output, &outLen), CRYPT_SUCCESS);
-exit:
+    
+    ASSERT_EQ(CRYPT_EAL_MdGetId(sha3Ctx), algId);
+    ASSERT_EQ(CRYPT_EAL_MdDeinit(sha3Ctx), CRYPT_SUCCESS);
+
+EXIT:
     CRYPT_EAL_MdFreeCtx(sha3Ctx);
 }
 /* END_CASE */
@@ -195,7 +206,7 @@ void SDV_CRYPT_EAL_SHA3_FUNC_TC001(int algId)
 
     ASSERT_EQ(memcmp(out1, out2, outLen), 0);
 
-exit:
+EXIT:
     CRYPT_EAL_MdFreeCtx(ctx1);
     CRYPT_EAL_MdFreeCtx(ctx2);
 }
@@ -231,7 +242,7 @@ void SDV_CRYPT_EAL_SHA3_FUNC_TC002(int algId, Hex *data, Hex *hash)
         pthread_join(thrd[i], NULL);
     }
 
-exit:
+EXIT:
     return;
 }
 /* END_CASE */
@@ -241,9 +252,11 @@ exit:
  * @title  Standard vector test.
  * @precon nan
  * @brief
- *    Calculate the hash of the data and compare it with the standard vector.
+ *    1.Calculate the hash of the data and compare it with the standard vector, expected result 1.
+ *    2.Call CRYPT_EAL_Md to calculate the hash value, expected result 2.
  * @expect
- *    The results are the same.
+ *    1.The results are the same.
+ *    2.The results are the same.
  */
 /* BEGIN_CASE */
 void SDV_CRYPT_EAL_SHA3_FUNC_TC003(int algId, Hex *in, Hex *digest)
@@ -261,7 +274,11 @@ void SDV_CRYPT_EAL_SHA3_FUNC_TC003(int algId, Hex *in, Hex *digest)
     ASSERT_EQ(CRYPT_EAL_MdFinal(ctx, out, &outLen), CRYPT_SUCCESS);
     ASSERT_EQ(outLen, digest->len);
     ASSERT_EQ(memcmp(out, digest->x, digest->len), 0);
-exit:
+
+    ASSERT_EQ(CRYPT_EAL_Md(algId, in->x, in->len, out, &outLen), CRYPT_SUCCESS);
+    ASSERT_EQ(memcmp(out, digest->x, digest->len), 0);
+
+EXIT:
     CRYPT_EAL_MdFreeCtx(ctx);
 }
 /* END_CASE */
@@ -290,7 +307,84 @@ void SDV_CRYPT_EAL_SHA3_FUNC_TC004(int algId, Hex *in, Hex *digest)
     ASSERT_EQ(CRYPT_EAL_MdUpdate(ctx, in->x, in->len), CRYPT_SUCCESS);
     ASSERT_EQ(CRYPT_EAL_MdFinal(ctx, out, &outLen), CRYPT_SUCCESS);
     ASSERT_EQ(memcmp(out, digest->x, digest->len), 0);
-exit:
+EXIT:
+    CRYPT_EAL_MdFreeCtx(ctx);
+}
+/* END_CASE */
+
+/**
+ * @test   SDV_CRYPT_EAL_SHA3_FUNC_TC005
+ * @title  Standard vector test of the SHAKE algorithm.
+ * @precon nan
+ * @brief
+ *    Calculate the hash of the data and compare it with the standard vector.
+ * @expect
+ *    The results are the same.
+ */
+/* BEGIN_CASE */
+void SDV_CRYPT_EAL_SHA3_FUNC_TC005(int algId, Hex *in, Hex *digest, int isProvider)
+{
+    TestMemInit();
+    CRYPT_EAL_MdCTX *ctx = NULL;
+
+    uint8_t out[SHA3_OUTPUT_MAXSIZE];
+    uint32_t outLen = SHA3_OUTPUT_MAXSIZE;
+#ifdef HITLS_CRYPTO_PROVIDER
+    if (isProvider) {
+        ctx = CRYPT_EAL_ProviderMdNewCtx(NULL, algId, "provider=default");
+    } else
+#endif
+    {
+        (void)isProvider;
+        ctx = CRYPT_EAL_MdNewCtx(algId);
+    }
+    ASSERT_TRUE(ctx != NULL);
+    ASSERT_EQ(CRYPT_EAL_MdInit(ctx), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdUpdate(ctx, in->x, in->len), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdSqueeze(ctx, out, outLen), CRYPT_SUCCESS);
+    ASSERT_EQ(memcmp(out, digest->x, digest->len), 0);
+EXIT:
+    CRYPT_EAL_MdFreeCtx(ctx);
+}
+/* END_CASE */
+
+/**
+ * @test   SDV_CRYPT_EAL_SHA3_FUNC_TC006
+ * @title  Standard vector test of the SHAKE algorithm.
+ * @precon nan
+ * @brief
+ *    Calculate the hash of the data and compare it with the standard vector.
+ * @expect
+ *    The results are the same.
+ */
+/* BEGIN_CASE */
+void SDV_CRYPT_EAL_SHA3_FUNC_TC006(int algId, Hex *in, int outLen, Hex *digest, int isProvider)
+{
+    TestMemInit();
+    CRYPT_EAL_MdCTX *ctx = NULL;
+    int32_t squeezeLen = digest->len / 3;
+    uint8_t *out = malloc(outLen);
+    ASSERT_TRUE(out != NULL);
+#ifdef HITLS_CRYPTO_PROVIDER
+    if (isProvider) {
+        ctx = CRYPT_EAL_ProviderMdNewCtx(NULL, algId, "provider=default");
+    } else
+#endif
+    {
+        (void)isProvider;
+        ctx = CRYPT_EAL_MdNewCtx(algId);
+    }
+
+    ASSERT_TRUE(ctx != NULL);
+    ASSERT_EQ(CRYPT_EAL_MdInit(ctx), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdUpdate(ctx, in->x, in->len), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdSqueeze(ctx, out, squeezeLen), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdSqueeze(ctx, out + squeezeLen, squeezeLen), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdSqueeze(ctx, out + squeezeLen * 2, squeezeLen), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdSqueeze(ctx, out + squeezeLen * 3, outLen - squeezeLen * 3), CRYPT_SUCCESS);
+    ASSERT_EQ(memcmp(out, digest->x, digest->len), 0);
+EXIT:
+    free(out);
     CRYPT_EAL_MdFreeCtx(ctx);
 }
 /* END_CASE */
@@ -302,24 +396,37 @@ exit:
  * @brief
  *    1. Create the context ctx of md algorithm, expected result 1
  *    2. Call to CRYPT_EAL_MdCopyCtx method to copy ctx, expected result 2
- *    3. Calculate the hash of msg, and compare the calculated result with hash vector, expected result 3
+ *    2. Call to CRYPT_EAL_MdCopyCtx method to copy a null ctx, expected result 3
+ *    3. Calculate the hash of msg, and compare the calculated result with hash vector, expected result 4
+ *    4. Call to CRYPT_EAL_MdDupCtx method to copy ctx, expected result 5
+ *    3. Calculate the hash of msg, and compare the calculated result with hash vector, expected result 6
  * @expect
- *    1. Successful, the context is not null.
+ *    1. Success, the context is not null.
  *    2. CRYPT_SUCCESS
- *    3. Successful, the hashs are the same.
+ *    3. CRYPT_NULL_INPUT
+ *    4. Success, the context is not null.
+ *    5. CRYPT_SUCCESS
+ *    6. Success, the hashs are the same.
  */
 /* BEGIN_CASE */
 void SDV_CRYPTO_SHA3_COPY_CTX_FUNC_TC001(int id, Hex *msg, Hex *hash)
 {
     TestMemInit();
     CRYPT_EAL_MdCTX *cpyCtx = NULL;
+    CRYPT_EAL_MdCTX *dupCtx = NULL;
     CRYPT_EAL_MdCTX *ctx = CRYPT_EAL_MdNewCtx(id);
     ASSERT_TRUE(ctx != NULL);
     uint8_t output[SHA3_OUTPUT_MAXSIZE];
     uint32_t outLen = SHA3_OUTPUT_MAXSIZE;
+    
+    dupCtx=CRYPT_EAL_MdDupCtx(cpyCtx);
+    ASSERT_TRUE(dupCtx == NULL);
+    ASSERT_EQ(CRYPT_MD_MAX, CRYPT_EAL_MdGetId(dupCtx));
 
-    cpyCtx = BSL_SAL_Calloc(1u, sizeof(CRYPT_EAL_MdCTX));
+    cpyCtx = CRYPT_EAL_MdNewCtx(id);
     ASSERT_TRUE(cpyCtx != NULL);
+    ASSERT_TRUE(dupCtx == NULL);
+    ASSERT_EQ(CRYPT_EAL_MdCopyCtx(cpyCtx, dupCtx), CRYPT_NULL_INPUT);
     ASSERT_EQ(CRYPT_EAL_MdCopyCtx(cpyCtx, ctx), CRYPT_SUCCESS);
 
     ASSERT_EQ(CRYPT_EAL_MdInit(cpyCtx), CRYPT_SUCCESS);
@@ -332,8 +439,88 @@ void SDV_CRYPTO_SHA3_COPY_CTX_FUNC_TC001(int id, Hex *msg, Hex *hash)
     }
     ASSERT_EQ(memcmp(output, hash->x, hash->len), 0);
 
-exit:
+    dupCtx=CRYPT_EAL_MdDupCtx(ctx);
+    ASSERT_TRUE(dupCtx != NULL);
+    ASSERT_EQ(CRYPT_EAL_MdInit(dupCtx), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdUpdate(dupCtx, msg->x, msg->len), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdFinal(dupCtx, output, &outLen), CRYPT_SUCCESS);
+
+    ASSERT_EQ(id, CRYPT_EAL_MdGetId(dupCtx));
+    ASSERT_EQ(memcmp(output, hash->x, hash->len), 0);
+EXIT:
     CRYPT_EAL_MdFreeCtx(ctx);
     CRYPT_EAL_MdFreeCtx(cpyCtx);
+    CRYPT_EAL_MdFreeCtx(dupCtx);
+}
+/* END_CASE */
+
+/**
+ * @test   SDV_CRYPTO_SHA3_DEFAULT_PROVIDER_FUNC_TC001
+ * @title  Default provider testing
+ * @precon nan
+ * @brief
+ * Load the default provider and use the test vector to test its correctness
+ */
+/* BEGIN_CASE */
+void SDV_CRYPTO_SHA3_DEFAULT_PROVIDER_FUNC_TC001(int id, Hex *msg, Hex *hash)
+{
+    TestMemInit();
+    CRYPT_EAL_MdCTX *ctx = NULL;
+#ifdef HITLS_CRYPTO_PROVIDER
+    ctx = CRYPT_EAL_ProviderMdNewCtx(NULL, id, "provider=default");
+#else
+    ctx = CRYPT_EAL_MdNewCtx(id);
+#endif
+    ASSERT_TRUE(ctx != NULL);
+    uint8_t output[SHA3_OUTPUT_MAXSIZE];
+    uint32_t outLen = SHA3_OUTPUT_MAXSIZE;
+
+    ASSERT_EQ(CRYPT_EAL_MdInit(ctx), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdUpdate(ctx, msg->x, msg->len), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdFinal(ctx, output, &outLen), CRYPT_SUCCESS);
+    ASSERT_EQ(memcmp(output, hash->x, hash->len), 0);
+
+EXIT:
+    CRYPT_EAL_MdFreeCtx(ctx);
+}
+/* END_CASE */
+
+/**
+ * @test   SDV_CRYPT_EAL_SHA3_FUNC_TC007
+ * @title  Standard vector test of the SHAKE algorithm.
+ * @precon nan
+ * @brief
+ *    Calculate the hash of the data and compare it with the standard vector.
+ * @expect
+ *    The results are the same.
+ */
+/* BEGIN_CASE */
+void SDV_CRYPT_EAL_SHA3_FUNC_TC007(int algId, int outLen, Hex *in, Hex *digest)
+{
+    TestMemInit();
+    CRYPT_EAL_MdCTX *ctx = NULL;
+    int32_t squeezeLen = 130;
+    uint32_t tmpLen = outLen;
+    uint8_t *out1 = malloc(outLen);
+    uint8_t *out2 = malloc(outLen);
+    ASSERT_TRUE(out1 != NULL && out2 != NULL);
+    ctx = CRYPT_EAL_MdNewCtx(algId);
+    ASSERT_TRUE(ctx != NULL);
+    ASSERT_EQ(CRYPT_EAL_MdInit(ctx), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdUpdate(ctx, in->x, in->len), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdSqueeze(ctx, out1, squeezeLen), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdSqueeze(ctx, out1 + squeezeLen, outLen - squeezeLen), CRYPT_SUCCESS);
+    CRYPT_EAL_MdFreeCtx(ctx);
+    ctx = CRYPT_EAL_MdNewCtx(algId);
+    ASSERT_TRUE(ctx != NULL);
+    ASSERT_EQ(CRYPT_EAL_MdInit(ctx), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdUpdate(ctx, in->x, in->len), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_MdFinal(ctx, out2, &tmpLen), CRYPT_SUCCESS);
+    ASSERT_EQ(memcmp(out1, out2, outLen), 0);
+    ASSERT_EQ(memcmp(out1, digest->x, digest->len), 0);
+EXIT:
+    free(out1);
+    free(out2);
+    CRYPT_EAL_MdFreeCtx(ctx);
 }
 /* END_CASE */

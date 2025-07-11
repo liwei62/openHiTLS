@@ -45,6 +45,11 @@ int GetRpcFuncNum(void);
 int RpcTlsNewCtx(CmdData*);
 
 /**
+ * @brief Invoke the RPC to create CTX resources with provider.
+ */
+int RpcProviderTlsNewCtx(CmdData *cmdData);
+
+/**
 * @brief Invoke the RPC to set the CTX information.
 */
 int RpcTlsSetCtx(CmdData*);
@@ -159,10 +164,6 @@ int RpcTlsClose(CmdData *cmdData);
 */
 int RpcFreeResFormSsl(CmdData *cmdData);
 
-/**
-* @brief RPC Disable the SCTP connection.
-*/
-int RpcSctpClose(CmdData *cmdData);
 
 int RpcCloseFd(CmdData *cmdData);
 

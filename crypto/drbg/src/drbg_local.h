@@ -46,10 +46,15 @@ typedef struct {
 } DRBG_Method;
 
 struct DrbgCtx {
+    bool isGm;
     DRBG_State state; /* DRBG state */
 
     uint32_t reseedCtr; /* reseed counter */
     uint32_t reseedInterval; /* reseed interval times */
+#if defined(HITLS_CRYPTO_DRBG_GM)
+    uint64_t lastReseedTime; /* last reseed time, uint: second */
+    uint64_t reseedIntervalTime; /* Time threshold for reseed, uint: second */
+#endif
 
     uint32_t strength; /* Algorithm strength */
     uint32_t maxRequest; /* Maximum number of bytes per request, which is determined by the algorithm. */
@@ -68,6 +73,62 @@ struct DrbgCtx {
     CRYPT_RandSeedMethod seedMeth;
     void *seedCtx; /* Seed context */
 };
+
+#ifdef HITLS_CRYPTO_DRBG_HMAC
+/**
+ * @ingroup drbg
+ * @brief Apply for a context for the HMAC_DRBG.
+ * @brief This API does not support multiple threads.
+ *
+ * @param hmacMeth  HMAC method
+ * @param mdMeth    hash algid
+ * @param seedMeth  DRBG seed hook
+ * @param seedCtx   DRBG seed context
+ *
+ * @retval DRBG_Ctx* Success
+ * @retval NULL      failure
+ */
+DRBG_Ctx *DRBG_NewHmacCtx(const EAL_MacMethod *hmacMeth, CRYPT_MAC_AlgId macId,
+    const CRYPT_RandSeedMethod *seedMeth, void *seedCtx);
+#endif
+
+#ifdef HITLS_CRYPTO_DRBG_HASH
+/**
+ * @ingroup drbg
+ * @brief Apply for a context for the Hash_DRBG.
+ * @brief This API does not support multiple threads.
+ *
+ * @param md        HASH method
+ * @param isGm      is sm3
+ * @param seedMeth  DRBG seed hook
+ * @param seedCtx   DRBG seed context
+ *
+ * @retval DRBG_Ctx* Success
+ * @retval NULL      failure
+ */
+DRBG_Ctx *DRBG_NewHashCtx(const EAL_MdMethod *md, bool isGm, const CRYPT_RandSeedMethod *seedMeth, void *seedCtx);
+#endif
+
+
+#ifdef HITLS_CRYPTO_DRBG_CTR
+/**
+ * @ingroup drbg
+ * @brief Apply for a context for the CTR_DRBG.
+ * @brief This API does not support multiple threads.
+ *
+ * @param ciphMeth  AES method
+ * @param keyLen    Key length
+ * @param isGm      is sm4
+ * @param isUsedDf  Indicates whether to use derivation function.
+ * @param seedMeth  DRBG seed hook
+ * @param seedCtx   DRBG seed context
+ *
+ * @retval DRBG_Ctx* Success
+ * @retval NULL      failure
+ */
+DRBG_Ctx *DRBG_NewCtrCtx(const EAL_SymMethod *ciphMeth, const uint32_t keyLen, bool isGm, const bool isUsedDf,
+    const CRYPT_RandSeedMethod *seedMeth, void *seedCtx);
+#endif
 
 #ifdef __cplusplus
 }

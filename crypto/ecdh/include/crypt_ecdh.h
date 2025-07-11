@@ -23,6 +23,7 @@
 #include "crypt_types.h"
 #include "crypt_algid.h"
 #include "crypt_ecc_pkey.h"
+#include "bsl_params.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +43,17 @@ typedef struct EccPara CRYPT_EcdhPara;
  * @retval NULL               Invalid null pointer
  */
 CRYPT_ECDH_Ctx *CRYPT_ECDH_NewCtx(void);
+
+/**
+ * @ingroup ecdh
+ * @brief ecdh Allocate the context memory space.
+ * 
+ * @param libCtx [IN] Library context
+ *
+ * @retval (CRYPT_ECDH_Ctx *) Pointer to the memory space of the allocated context
+ * @retval NULL               Invalid null pointer
+ */
+CRYPT_ECDH_Ctx *CRYPT_ECDH_NewCtxEx(void *libCtx);
 
 /**
  * @ingroup ecdh
@@ -84,7 +96,7 @@ CRYPT_EcdhPara *CRYPT_ECDH_NewParaById(CRYPT_PKEY_ParaId id);
  * @retval (CRYPT_EcdhPara *) Pointer to the memory space of the allocated context
  * @retval NULL               Invalid null pointer
  */
-CRYPT_EcdhPara *CRYPT_ECDH_NewPara(const CRYPT_EccPara *eccPara);
+CRYPT_EcdhPara *CRYPT_ECDH_NewPara(const BSL_Param *eccPara);
 
 /**
  * @ingroup ecdh
@@ -115,20 +127,20 @@ void CRYPT_ECDH_FreePara(CRYPT_EcdhPara *para);
  * @retval CRYPT_MEM_ALLOC_FAIL internal memory allocation error
  * @retval CRYPT_SUCCESS        Set successfully.
  */
-int32_t CRYPT_ECDH_SetPara(CRYPT_ECDH_Ctx *ctx, const CRYPT_EcdhPara *para);
+int32_t CRYPT_ECDH_SetPara(CRYPT_ECDH_Ctx *ctx, const BSL_Param *param);
 
 /**
  * @ingroup ecdh
  * @brief Get the data of the key structure to the key parameter structure.
  *
  * @param ctx [IN] Key structure for setting related parameters
- * @param para [OUT] Key parameters
+ * @param param [OUT] Key parameters
  *
  * @retval CRYPT_NULL_INPUT     Invalid null pointer input.
  * @retval CRYPT_MEM_ALLOC_FAIL Internal memory allocation error
  * @retval CRYPT_SUCCESS        Get successfully.
  */
-int32_t CRYPT_ECDH_GetPara(const CRYPT_ECDH_Ctx *ctx, CRYPT_EccPara *para);
+int32_t CRYPT_ECDH_GetPara(const CRYPT_ECDH_Ctx *ctx, BSL_Param *param);
 
 /**
  * @ingroup ecdh
@@ -187,7 +199,7 @@ int32_t CRYPT_ECDH_ComputeShareKey(const CRYPT_ECDH_Ctx *ctx, const CRYPT_ECDH_C
  * @retval ECC error.           An error occurred in the internal ECC calculation.
  * @retval CRYPT_SUCCESS        Set successfully.
  */
-int32_t CRYPT_ECDH_SetPrvKey(CRYPT_ECDH_Ctx *ctx, const CRYPT_EcdhPrv *prv);
+int32_t CRYPT_ECDH_SetPrvKey(CRYPT_ECDH_Ctx *ctx, const BSL_Param *para);
 
 /**
  * @ingroup ecdh
@@ -201,7 +213,7 @@ int32_t CRYPT_ECDH_SetPrvKey(CRYPT_ECDH_Ctx *ctx, const CRYPT_EcdhPrv *prv);
  * @retval ECC error.           An error occurred in the internal ECC calculation.
  * @retval CRYPT_SUCCESS        Set successfully.
  */
-int32_t CRYPT_ECDH_SetPubKey(CRYPT_ECDH_Ctx *ctx, const CRYPT_EcdhPub *pub);
+int32_t CRYPT_ECDH_SetPubKey(CRYPT_ECDH_Ctx *ctx, const BSL_Param *para);
 
 /**
  * @ingroup ecdh
@@ -215,7 +227,7 @@ int32_t CRYPT_ECDH_SetPubKey(CRYPT_ECDH_Ctx *ctx, const CRYPT_EcdhPub *pub);
  * @retval ECC error.                   An error occurred in the internal ECC calculation.
  * @retval CRYPT_SUCCESS                Obtained successfully.
  */
-int32_t CRYPT_ECDH_GetPrvKey(const CRYPT_ECDH_Ctx *ctx, CRYPT_EcdhPrv *prv);
+int32_t CRYPT_ECDH_GetPrvKey(const CRYPT_ECDH_Ctx *ctx, BSL_Param *para);
 
 /**
  * @ingroup ecdh
@@ -229,7 +241,7 @@ int32_t CRYPT_ECDH_GetPrvKey(const CRYPT_ECDH_Ctx *ctx, CRYPT_EcdhPrv *prv);
  * @retval ECC error.                   An error occurred in the internal ECC calculation.
  * @retval CRYPT_SUCCESS                Obtained successfully.
  */
-int32_t CRYPT_ECDH_GetPubKey(const CRYPT_ECDH_Ctx *ctx, CRYPT_EcdhPub *pub);
+int32_t CRYPT_ECDH_GetPubKey(const CRYPT_ECDH_Ctx *ctx, BSL_Param *para);
 
 /**
  * @ingroup ecdh
@@ -246,7 +258,7 @@ int32_t CRYPT_ECDH_GetPubKey(const CRYPT_ECDH_Ctx *ctx, CRYPT_EcdhPub *pub);
  * @retval CRYPT_ECC_PKEY_ERR_CTRL_LEN                  The len is incorrect.
  * @retval CRYPT_ECC_PKEY_ERR_UNSUPPORTED_CTRL_OPTION   opt mode not supported
  */
-int32_t CRYPT_ECDH_Ctrl(CRYPT_ECDH_Ctx *ctx, CRYPT_PkeyCtrl opt, void *val, uint32_t len);
+int32_t CRYPT_ECDH_Ctrl(CRYPT_ECDH_Ctx *ctx, int32_t opt, void *val, uint32_t len);
 
 /**
  * @ingroup ecdh
@@ -264,7 +276,7 @@ int32_t CRYPT_ECDH_Cmp(const CRYPT_ECDH_Ctx *a, const CRYPT_ECDH_Ctx *b);
  * @ingroup ecdh
  * @brief ecdh get security bits
  *
- * @param para [IN] ecdh Context structure
+ * @param ctx [IN] ecdh Context structure
  *
  * @retval security bits
  */

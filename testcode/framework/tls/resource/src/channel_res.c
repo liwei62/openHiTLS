@@ -99,12 +99,10 @@ int InitControlChannelRes(char *srcDomainPath, int srcDomainPathLen, char *peerD
     }
 
     // Initializes the communication address used for UDP Domain Socket communication.
-    ret = SetControlChannelRes(&g_channelRes, srcDomainPath, peerDomainPath);
-
-    return ret;
+    return SetControlChannelRes(&g_channelRes, srcDomainPath, peerDomainPath);
 }
 
-ControlChannelRes *GetControlChannelRes()
+ControlChannelRes *GetControlChannelRes(void)
 {
     return &g_channelRes;
 }

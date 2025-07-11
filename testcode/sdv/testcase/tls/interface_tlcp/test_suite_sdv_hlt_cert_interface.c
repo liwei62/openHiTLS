@@ -61,7 +61,7 @@
 #include "bsl_uio.h"
 #include "bsl_obj.h"
 #include "bsl_errno.h"
-#include "hitls_x509_adapt_local.h"
+#include "hitls_x509_adapt.h"
 
 /* END_HEADER */
 
@@ -77,19 +77,19 @@ int32_t g_uiPort = 18886;
 #define READ_DATA_18432 18432
 #define PASSWDLEN (10)
 #define CERT_PATH_BUFFER (100)
- 
+
 #define RSA_ROOT_CERT_DER         "rsa_sha/ca-3072.der"
 #define RSA_CA_CERT_DER           "rsa_sha/inter-3072.der"
 #define RSA_EE_CERT_DER           "rsa_sha/end-sha1.der"
 #define RSA_PRIV_KEY_DER          "rsa_sha/end-sha1.key.der"
 #define RSA_EE_CERT_DER           "rsa_sha/end-sha1.der"
 #define RSA_PRIV_KEY_DER          "rsa_sha/end-sha1.key.der"
- 
+
 #define RSA_ROOT_CERT2_DER         "rsa_sha256/ca.der"
 #define RSA_CA_CERT2_DER           "rsa_sha256/inter.der"
 #define RSA_EE_CERT2_DER           "rsa_sha256/server.der"
 #define RSA_PRIV_KEY2_DER          "rsa_sha256/server.key.der"
- 
+
 #define ECDSA_ROOT_CERT_DER        "ecdsa/ca-nist521.der"
 #define ECDSA_CA_CERT_DER          "ecdsa/inter-nist521.der"
 #define ECDSA_EE_CERT_DER          "ecdsa/end256-sha256.der"
@@ -168,7 +168,7 @@ int Dtls_DataTransfer(HITLS_Ctx *clientCtx, HLT_Process *remoteProcess, HLT_Tls_
     ASSERT_EQ(HLT_ProcessTlsRead(remoteProcess, serverRes, readBuf, READ_DATA_18432, &readLen), 0);
     ASSERT_COMPARE("COMPARE DATA", writeBuf, writeLen, readBuf, readLen);
     return SUCCESS;
-exit:
+EXIT:
     return ERROR;
 }
 
@@ -178,11 +178,11 @@ HITLS_Ctx *Dtls_New_Ctx(HLT_Process *localProcess, HITLS_Config* clientConfig)
     ASSERT_TRUE(clientCtx != NULL);
     HLT_Ssl_Config clientCtxConfig;
     clientCtxConfig.sockFd = localProcess->connFd;
-    clientCtxConfig.connType = IsEnableSctpAuth() ? SCTP : TCP;
+    clientCtxConfig.connType = SCTP;
     ASSERT_TRUE_AND_LOG("HLT_TlsSetSsl", HLT_TlsSetSsl(clientCtx, &clientCtxConfig) == 0);
     return clientCtx;
 
-exit:
+EXIT:
     return NULL;
 }
 
@@ -253,7 +253,7 @@ void TestSetCertPath(HLT_Ctx_Config *ctxConfig, char *SignatureType)
     }
 }
 
-HITLS_CERT_X509 *HiTLS_X509_LoadCertFile(const char *file);
+HITLS_CERT_X509 *HiTLS_X509_LoadCertFile(HITLS_Config *tlsCfg, const char *file);
 
 /* @
 * @test  SDV_TLS_LoadAndDelCert_FUNC_TC001
@@ -276,6 +276,9 @@ HITLS_CERT_X509 *HiTLS_X509_LoadCertFile(const char *file);
 /* BEGIN_CASE */
 void SDV_TLS_CERT_LoadAndDelCert_FUNC_TC001(int delWay)
 {
+    if (!IsEnableSctpAuth()) {
+        return;
+    }
     HLT_Tls_Res *clientRes = NULL;
     HLT_Process *localProcess = NULL;
     HLT_Process *remoteProcess = NULL;
@@ -295,7 +298,7 @@ void SDV_TLS_CERT_LoadAndDelCert_FUNC_TC001(int delWay)
 
     localProcess = HLT_InitLocalProcess(HITLS);
     ASSERT_TRUE(localProcess != NULL);
-    HILT_TransportType connType = IsEnableSctpAuth() ? SCTP : TCP;
+    HILT_TransportType connType = SCTP;
     remoteProcess = HLT_LinkRemoteProcess(HITLS, connType, g_uiPort, false);
     ASSERT_TRUE(remoteProcess != NULL);
 
@@ -320,24 +323,24 @@ void SDV_TLS_CERT_LoadAndDelCert_FUNC_TC001(int delWay)
     HITLS_CERT_Store *chainStore = HITLS_X509_Adapt_StoreNew();
     ASSERT_TRUE(chainStore != NULL);
     ASSERT_EQ(HITLS_CFG_SetVerifyStore(serverConfig, chainStore, SHALLOW_COPY), SUCCESS);
-    HITLS_CERT_X509 *rootCACert2 = HiTLS_X509_LoadCertFile(rootCAFilePath2);
+    HITLS_CERT_X509 *rootCACert2 = HiTLS_X509_LoadCertFile(serverConfig, rootCAFilePath2);
     ASSERT_TRUE(rootCACert2 != NULL);
     ASSERT_EQ(HITLS_CFG_AddCertToStore(serverConfig, rootCACert2, TLS_CERT_STORE_TYPE_VERIFY, false), HITLS_SUCCESS);
-    HITLS_CERT_X509 *caCert2 = HiTLS_X509_LoadCertFile(caFilePath2);
+    HITLS_CERT_X509 *caCert2 = HiTLS_X509_LoadCertFile(serverConfig, caFilePath2);
     ASSERT_TRUE(caCert2 != NULL);
     ASSERT_EQ(HITLS_CFG_AddCertToStore(serverConfig, caCert2, TLS_CERT_STORE_TYPE_VERIFY, false), HITLS_SUCCESS);
 
     // Loading the device certificate and corresponding private key for the first time
-    HITLS_CERT_X509 *eeCert1 = HiTLS_X509_LoadCertFile(eeFilePath2);
+    HITLS_CERT_X509 *eeCert1 = HiTLS_X509_LoadCertFile(serverConfig, eeFilePath2);
     ASSERT_TRUE(eeCert1 != NULL);
     ASSERT_EQ(HITLS_CFG_SetCertificate(serverConfig, eeCert1, SHALLOW_COPY), SUCCESS);
-    HITLS_CERT_Key *prvKey1 = HITLS_X509_Adapt_KeyParse(serverConfig, (const uint8_t *)eeKeyPath2, strlen(eeKeyPath1), 
+    HITLS_CERT_Key *prvKey1 = HITLS_CFG_ParseKey(serverConfig, (const uint8_t *)eeKeyPath2, strlen(eeKeyPath1),
         TLS_PARSE_TYPE_FILE, TLS_PARSE_FORMAT_ASN1);
     ASSERT_TRUE(prvKey1 != NULL);
     ASSERT_EQ(HITLS_CFG_SetPrivateKey(serverConfig, prvKey1, SHALLOW_COPY), SUCCESS);
 
     // The private key is not loaded when the certificate is loaded for the second time.
-    HITLS_CERT_X509 *eeCert2 = HiTLS_X509_LoadCertFile(eeFilePath2);
+    HITLS_CERT_X509 *eeCert2 = HiTLS_X509_LoadCertFile(serverConfig, eeFilePath2);
     ASSERT_TRUE(eeCert2 != NULL);
     ASSERT_EQ(HITLS_CFG_SetCertificate(serverConfig, eeCert2, SHALLOW_COPY), SUCCESS);
     ASSERT_TRUE(HITLS_CFG_GetCertificate(serverConfig) == eeCert2);
@@ -345,11 +348,16 @@ void SDV_TLS_CERT_LoadAndDelCert_FUNC_TC001(int delWay)
     if (delWay == FROM_CONFIG) {
         ASSERT_EQ(HITLS_CFG_RemoveCertAndKey(serverConfig), SUCCESS);
         // Reload the certificate without loading the private key.
-        eeCert3 = HiTLS_X509_LoadCertFile(eeFilePath2);
+        eeCert3 = HiTLS_X509_LoadCertFile(serverConfig, eeFilePath2);
         ASSERT_TRUE(eeCert3 != NULL);
         ASSERT_EQ(HITLS_CFG_SetCertificate(serverConfig, eeCert3, SHALLOW_COPY), SUCCESS);
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+        HITLS_CERT_Key *prvKey2 = HITLS_X509_Adapt_ProviderKeyParse(serverConfig, (const uint8_t *)eeKeyPath2,
+            strlen(eeKeyPath2), TLS_PARSE_TYPE_FILE, "ASN1", NULL);
+#else
         HITLS_CERT_Key *prvKey2 = HITLS_X509_Adapt_KeyParse(serverConfig, (const uint8_t *)eeKeyPath2,
             strlen(eeKeyPath2), TLS_PARSE_TYPE_FILE, TLS_PARSE_FORMAT_ASN1);
+#endif
         ASSERT_TRUE(prvKey2 != NULL);
         ASSERT_EQ(HITLS_CFG_SetPrivateKey(serverConfig, prvKey2, SHALLOW_COPY), SUCCESS);
         ASSERT_TRUE(HITLS_CFG_GetPrivateKey(serverConfig) == prvKey2);
@@ -362,11 +370,16 @@ void SDV_TLS_CERT_LoadAndDelCert_FUNC_TC001(int delWay)
         ASSERT_TRUE(HITLS_GetCertificate(serverCtx) != eeCert2);
         ASSERT_EQ(HITLS_RemoveCertAndKey(serverCtx), SUCCESS);
         // Reload the certificate without loading the private key.
-        eeCert3 = HiTLS_X509_LoadCertFile(eeFilePath2);
+        eeCert3 = HiTLS_X509_LoadCertFile(serverConfig, eeFilePath2);
         ASSERT_TRUE(eeCert3 != NULL);
         ASSERT_EQ(HITLS_SetCertificate(serverCtx, eeCert3, SHALLOW_COPY), SUCCESS);
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+        HITLS_CERT_Key *prvKey2 = HITLS_X509_Adapt_ProviderKeyParse(serverConfig, (const uint8_t *)eeKeyPath2,
+            strlen(eeKeyPath2), TLS_PARSE_TYPE_FILE, "ASN1", NULL);
+#else
         HITLS_CERT_Key *prvKey2 = HITLS_X509_Adapt_KeyParse(serverConfig, (const uint8_t *)eeKeyPath2,
             strlen(eeKeyPath2), TLS_PARSE_TYPE_FILE, TLS_PARSE_FORMAT_ASN1);
+#endif
         ASSERT_TRUE(prvKey2 != NULL);
         ASSERT_EQ(HITLS_SetPrivateKey(serverCtx, prvKey2, SHALLOW_COPY), SUCCESS);
         ASSERT_TRUE(HITLS_GetCertificate(serverCtx) == eeCert3);
@@ -377,7 +390,7 @@ void SDV_TLS_CERT_LoadAndDelCert_FUNC_TC001(int delWay)
     ASSERT_TRUE(clientRes != NULL);
     ASSERT_EQ(HLT_GetTlsAcceptResultFromId(tlsAcceptId), 0);
     ASSERT_EQ(Dtls_DataTransfer(serverCtx, remoteProcess, clientRes), SUCCESS);
-exit:
+EXIT:
     HLT_FreeAllProcess();
     return;
 }

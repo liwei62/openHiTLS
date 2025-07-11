@@ -97,6 +97,7 @@
 #include "hitls_session.h"
 #include "cert_method.h"
 #include "bsl_list.h"
+#include "session_mgr.h"
 #define DEFAULT_DESCRIPTION_LEN 128
 #define ERROR_HITLS_GROUP 1
 #define ERROR_HITLS_SIGNATURE 0xffffu
@@ -109,7 +110,7 @@ typedef struct {
     HITLS_Session *clientSession; /* Set the session to the client for session resume. */
 } ResumeTestInfo;
 
-HITLS_CERT_X509 *HiTLS_X509_LoadCertFile(const char *file);
+HITLS_CERT_X509 *HiTLS_X509_LoadCertFile(HITLS_Config *tlsCfg, const char *file);
 void SAL_CERT_X509Free(HITLS_CERT_X509 *cert);
 
 static HITLS_Config *GetHitlsConfigViaVersion(int ver)
@@ -211,7 +212,7 @@ void UT_TLS_CFG_SET_VERSION_API_TC001(void)
     ret = HITLS_CFG_SetVersion(tlsConfig, HITLS_VERSION_TLS12, HITLS_VERSION_DTLS12);
     ASSERT_TRUE(ret != HITLS_SUCCESS);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
 }
 /* END_CASE */
@@ -294,7 +295,7 @@ void UT_TLS_CFG_SET_GET_VERSIONFORBID_API_TC001(void)
     ASSERT_TRUE(HITLS_CFG_SetVersionForbid(config, version) == HITLS_SUCCESS);
     ASSERT_TRUE(config->version == TLS_VERSION_MASK);
     ASSERT_TRUE(config->minVersion == HITLS_VERSION_TLS12 && config->maxVersion == HITLS_VERSION_TLS13);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -354,7 +355,7 @@ void UT_TLS_CFG_SET_GET_EXTENEDMASTERSECRETSUPPORT_API_TC001(int tlsVersion)
     ASSERT_TRUE(HITLS_CFG_SetExtenedMasterSecretSupport(config, support) == HITLS_SUCCESS);
     ASSERT_TRUE(HITLS_CFG_GetExtenedMasterSecretSupport(config, &isSupport) == HITLS_SUCCESS);
     ASSERT_TRUE(isSupport == false);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -415,7 +416,7 @@ void  UT_TLS_CFG_SET_GET_POSTHANDSHAKEAUTHSUPPORT_API_TC001(int tlsVersion)
     ASSERT_TRUE(HITLS_CFG_SetPostHandshakeAuthSupport(config, support) == HITLS_SUCCESS);
     ASSERT_TRUE(HITLS_CFG_GetPostHandshakeAuthSupport(config, &isSupport) == HITLS_SUCCESS);
     ASSERT_TRUE(isSupport == false);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -470,7 +471,7 @@ void UT_TLS_CFG_SET_CIPHERSUITES_FUNC_TC001(int tlsVersion)
     client = FRAME_CreateLinkWithCert(config_c, BSL_UIO_TCP, &certInfo);
     if (tlsVersion == TLS1_3) {
         ASSERT_TRUE(client == NULL);
-        goto exit;
+        goto EXIT;
     }
     ASSERT_TRUE(client != NULL);
     server = FRAME_CreateLink(config_s, BSL_UIO_TCP);
@@ -478,7 +479,7 @@ void UT_TLS_CFG_SET_CIPHERSUITES_FUNC_TC001(int tlsVersion)
 
     ASSERT_EQ(FRAME_CreateConnection(client, server, true, HS_STATE_BUTT), HITLS_SUCCESS);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config_c);
     HITLS_CFG_FreeConfig(config_s);
     FRAME_FreeLink(client);
@@ -507,7 +508,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_CFG_SET_GET_KEYEXCHMODE_FUNC_TC001()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
 
     ResumeTestInfo testInfo = {0};
@@ -519,7 +519,7 @@ void UT_TLS_CFG_SET_GET_KEYEXCHMODE_FUNC_TC001()
     ASSERT_EQ(HITLS_CFG_GetKeyExchMode(testInfo.config), TLS13_KE_MODE_PSK_ONLY);
     ASSERT_EQ(HITLS_CFG_SetKeyExchMode(testInfo.config, TLS13_KE_MODE_PSK_WITH_DHE), HITLS_SUCCESS);
     ASSERT_EQ(HITLS_CFG_GetKeyExchMode(testInfo.config), TLS13_KE_MODE_PSK_WITH_DHE);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(testInfo.config);
 }
 /* END_CASE */
@@ -578,7 +578,7 @@ void UT_TLS_CFG_SET_GET_VERSIONSUPPORT_API_TC001(int tlsVersion)
     uint32_t getversion = 0;
     ASSERT_TRUE(HITLS_CFG_GetVersionSupport(config, &getversion) == HITLS_SUCCESS);
     ASSERT_TRUE(getversion == config->version);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -636,7 +636,7 @@ void UT_TLS_CFG_SET_GET_ENCRYPTTHENMAC_API_TC001(int tlsVersion)
     uint32_t getencryptThenMacType = -1;
     ASSERT_TRUE(HITLS_CFG_GetEncryptThenMac(config, &getencryptThenMacType) == HITLS_SUCCESS);
     ASSERT_TRUE(getencryptThenMacType == config->isEncryptThenMac);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -678,7 +678,7 @@ void UT_TLS_CFG_IS_DTLS_API_TC001(int tlsVersion)
     ASSERT_TRUE(HITLS_CFG_IsDtls(config, NULL) == HITLS_NULL_INPUT);
     ASSERT_TRUE(HITLS_CFG_IsDtls(config, &isDtls) == HITLS_SUCCESS);
     ASSERT_TRUE(isDtls == false);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -753,7 +753,7 @@ void UT_TLS_CFG_GET_RECORDPADDING_API_TC001()
     ASSERT_TRUE(HITLS_CFG_SetRecordPaddingCbArg(NULL, RECORDPADDING_CB) ==  HITLS_NULL_INPUT);
     ASSERT_TRUE(HITLS_CFG_SetRecordPaddingCbArg(config, NULL) ==  HITLS_SUCCESS);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -789,7 +789,7 @@ void UT_TLS_CFG_SET_RECORDPADDINGARG_API_TC001()
     ASSERT_TRUE(HITLS_CFG_SetRecordPaddingCbArg(NULL, RECORDPADDING_CB) ==  HITLS_NULL_INPUT);
     ASSERT_TRUE(HITLS_CFG_SetRecordPaddingCbArg(config, NULL) ==  HITLS_SUCCESS);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -829,7 +829,10 @@ void UT_TLS_CFG_SET_TICKET_CB_API_TC001()
     // HITLS_TicketKeyCb is not empty
     ASSERT_TRUE(HITLS_CFG_SetTicketKeyCallback(config, EXAMPLE_TicketKeyCallback) ==  HITLS_SUCCESS);
 
-exit:
+    SESSMGR_SetTicketKeyCb(config->sessMgr, EXAMPLE_TicketKeyCallback);
+    ASSERT_EQ(SESSMGR_GetTicketKeyCb(config->sessMgr), EXAMPLE_TicketKeyCallback);
+
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -847,7 +850,7 @@ void UT_TLS_CFG_NEW_DTLSCONFIG_API_TC001()
     HITLS_Config *config = HITLS_CFG_NewDTLSConfig();
     ASSERT_TRUE(config != NULL);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -890,7 +893,7 @@ void UT_TLS_CFG_GET_SET_SESSION_TICKETKEY_API_TC001(int version)
     ASSERT_TRUE(HITLS_CFG_GetSessionTicketKey(config, getKey, getKeySize, &outSize) == HITLS_SUCCESS);
 
     ASSERT_TRUE(outSize == ticketKeyLen);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     HITLS_Free(ctx);
 }
@@ -932,7 +935,7 @@ void UT_TLS_CFG_ADD_CAINDICATION_API_TC001(int tlsVersion)
     ASSERT_TRUE(HITLS_CFG_AddCAIndication(config, HITLS_TRUSTED_CA_X509_NAME, data, len) == HITLS_SUCCESS);
     ASSERT_TRUE(HITLS_CFG_AddCAIndication(config, HITLS_TRUSTED_CA_CERT_SHA1, data, len) == HITLS_SUCCESS);
     ASSERT_TRUE(HITLS_CFG_AddCAIndication(config, HITLS_TRUSTED_CA_UNKNOWN, data, len) == HITLS_SUCCESS);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -953,7 +956,7 @@ void UT_TLS_CFG_GET_CALIST_API_TC001()
     HITLS_Config *config = HITLS_CFG_NewTLS12Config();
     ASSERT_TRUE(config != NULL);
     ASSERT_TRUE(HITLS_CFG_GetCAList(config) == NULL);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -989,7 +992,7 @@ void UT_TLS_CFG_GET_VERSION_API_TC001(void)
     ASSERT_TRUE(HITLS_CFG_GetMaxVersion(config, &maxVersion) == HITLS_SUCCESS);
     ASSERT_TRUE(minVersion == HITLS_VERSION_TLS12 && maxVersion == HITLS_VERSION_TLS13);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -1012,7 +1015,7 @@ void UT_TLS_CFG_GET_SESSION_CACHEMODE_API_TC001(void)
 
     HITLS_SESS_CACHE_MODE getCacheMode = 0;
     ASSERT_EQ(HITLS_CFG_GetSessionCacheMode(config, &getCacheMode), 0);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -1039,7 +1042,7 @@ void UT_TLS_CFG_SET_GET_SESSIONCACHESIZE_API_TC001()
     ASSERT_TRUE(HITLS_CFG_SetSessionCacheSize(config, cacheSize) == HITLS_SUCCESS);
     ASSERT_TRUE(HITLS_CFG_GetSessionCacheSize(config, &getCacheSize) == HITLS_SUCCESS);
     ASSERT_TRUE(getCacheSize == cacheSize);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -1065,7 +1068,7 @@ void UT_TLS_CFG_SET_GET_SESSION_TIMEOUT_API_TC001()
     uint64_t getTimeOut = 0;
     ASSERT_TRUE(HITLS_CFG_SetSessionTimeout(config, timeOut) == HITLS_SUCCESS);
     ASSERT_TRUE(HITLS_CFG_GetSessionTimeout(config, &getTimeOut) == HITLS_SUCCESS);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -1091,7 +1094,7 @@ void UT_TLS_CFG_SET_VERSIONFORBID_API_TC001(void)
 
     ASSERT_TRUE(HITLS_SetVersionForbid(NULL, HITLS_VERSION_TLS12) == HITLS_NULL_INPUT);
     ASSERT_TRUE(HITLS_SetVersionForbid(ctx, HITLS_VERSION_TLS12) == HITLS_SUCCESS);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     HITLS_Free(ctx);
 }
@@ -1121,7 +1124,7 @@ void UT_TLS_CFG_SET_GET_CONFIGUSEDATA_API_TC001(int version)
     ASSERT_TRUE(HITLS_CFG_SetConfigUserData(NULL, userData) == HITLS_NULL_INPUT);
     ASSERT_TRUE(HITLS_CFG_SetConfigUserData(config, userData) == HITLS_SUCCESS);
     ASSERT_TRUE(HITLS_CFG_GetConfigUserData(config) != NULL);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -1155,7 +1158,7 @@ void UT_TLS_CFG_SET_CONFIG_USERDATA_FREECB_API_TC001(int version)
     ASSERT_TRUE(HITLS_CFG_SetConfigUserDataFreeCb(NULL, EXAMPLE_HITLS_ConfigUserDataFreeCb) == HITLS_NULL_INPUT);
     ASSERT_TRUE(HITLS_CFG_SetConfigUserDataFreeCb(config, EXAMPLE_HITLS_ConfigUserDataFreeCb) == HITLS_SUCCESS);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
 }
 /* END_CASE */
@@ -1169,8 +1172,8 @@ exit:
 *           certificate.(Expected result 1)
 *       3. Invoke the HITLS_CFG_SetCertificate interface. Ensure that tlsConfig and cert are not empty. Perform deep
 *           copy. (Expected result 3)
-*       4. Invoke the HITLS_CFG_GetCertificate interface. The value of tlsConfig->certMgrCtx->currentCertIndex is
-*           greater than the value of TLS_CERT_KEY_TYPE_NUM, Expected result 4 is obtained.
+*       4. Invoke the HITLS_CFG_GetCertificate interface. The value of tlsConfig->certMgrCtx->currentCertKeyType is
+*           greater than the value of TLS_CERT_KEY_TYPE_UNKNOWN, Expected result 4 is obtained.
 *       5. Invoke the HITLS_CFG_GetCertificate interface and leave tlsConfig empty. Expected result 4 is obtained.
 *       6. Invoke the HITLS_CFG_SetCertificate interface, set tlsConfig->certMgrCtx to null, and set cert to a non-empty
 *           device certificate. (Expected result 2)
@@ -1187,7 +1190,7 @@ void UT_TLS_CFG_SET_GET_CERTIFICATE_API_TC001(int version, char *certFile)
 {
     HitlsInit();
     HITLS_Config *tlsConfig = NULL;
-    HITLS_CERT_X509 *cert = HiTLS_X509_LoadCertFile(certFile);
+    HITLS_CERT_X509 *cert = HiTLS_X509_LoadCertFile(tlsConfig, certFile);
     tlsConfig = HitlsNewCtx(version);
     ASSERT_TRUE(tlsConfig != NULL);
     ASSERT_TRUE(HITLS_CFG_SetCertificate(NULL, cert, false) == HITLS_NULL_INPUT);
@@ -1195,15 +1198,15 @@ void UT_TLS_CFG_SET_GET_CERTIFICATE_API_TC001(int version, char *certFile)
     ASSERT_EQ(HITLS_CFG_SetCertificate(tlsConfig, cert, true), HITLS_SUCCESS);
 
     ASSERT_TRUE(HITLS_CFG_GetCertificate(tlsConfig) != NULL);
-    tlsConfig->certMgrCtx->currentCertIndex = TLS_CERT_KEY_TYPE_NUM + 1;
+    tlsConfig->certMgrCtx->currentCertKeyType = TLS_CERT_KEY_TYPE_UNKNOWN;
     ASSERT_TRUE(HITLS_CFG_GetCertificate(tlsConfig) == NULL);
     ASSERT_TRUE(HITLS_CFG_GetCertificate(NULL) == NULL);
     SAL_CERT_MgrCtxFree(tlsConfig->certMgrCtx);
     tlsConfig->certMgrCtx = NULL;
-    ASSERT_EQ(HITLS_CFG_SetCertificate(tlsConfig, cert, true), HITLS_UNREGISTERED_CALLBACK);
+    ASSERT_EQ(HITLS_CFG_SetCertificate(tlsConfig, cert, true), HITLS_NULL_INPUT);
     ASSERT_TRUE(HITLS_CFG_GetCertificate(tlsConfig) == NULL);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     SAL_CERT_X509Free(cert);
 }
@@ -1214,8 +1217,8 @@ exit:
 * @title Test HITLS_CFG_CheckPrivateKey interface
 * @brief 1. Invoke the HITLS_CFG_CheckPrivateKey interface and leave tlsConfig blank. Expected result 1
 *        2. Invoke the HITLS_CFG_CheckPrivateKey interface. The tlsConfig parameter is not empty,
-*           The value of tlsConfig->certMgrCtx->currentCertIndex is greater than or equal to the maximum value
-*           TLS_CERT_KEY_TYPE_NUM. Expected result 2
+*           The value of tlsConfig->certMgrCtx->currentCertKeyType is greater than or equal to the maximum value
+*           TLS_CERT_KEY_TYPE_UNKNOWN. Expected result 2
 *       3. Invoke the HITLS_CFG_CheckPrivateKey interface and leave tlsConfig->certMgrCtx empty. Expected result 3
 * @expect   1. Returns HITLS_NULL_INPUT
 *           2. HITLS_CONFIG_NO_CERT is returned.
@@ -1229,13 +1232,13 @@ void UT_TLS_CFG_CHECK_PRIVATEKEY_API_TC001(int version)
     tlsConfig = HitlsNewCtx(version);
     ASSERT_TRUE(tlsConfig != NULL);
     ASSERT_TRUE(HITLS_CFG_CheckPrivateKey(NULL) == HITLS_NULL_INPUT);
-    tlsConfig->certMgrCtx->currentCertIndex = TLS_CERT_KEY_TYPE_NUM;
+    tlsConfig->certMgrCtx->currentCertKeyType = TLS_CERT_KEY_TYPE_UNKNOWN;
     ASSERT_TRUE(HITLS_CFG_CheckPrivateKey(tlsConfig) == HITLS_CONFIG_NO_CERT);
     SAL_CERT_MgrCtxFree(tlsConfig->certMgrCtx);
     tlsConfig->certMgrCtx = NULL;
     ASSERT_TRUE(HITLS_CFG_CheckPrivateKey(tlsConfig) == HITLS_UNREGISTERED_CALLBACK);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
 }
 /* END_CASE */
@@ -1245,15 +1248,15 @@ exit:
 * @title  Test HITLS_CFG_GetChainCerts interface
 * @brief 1. Invoke the HITLS_CFG_AddChainCert interface, set tlsConfig to null, and set addCert to a certificate to be
 *           added. Perform shallow copy. Expected result 1 .
-*        2. Invoke the HITLS_CFG_AddChainCert interface. The tlsConfig parameter is not empty and the addCert parameter
+*        2. Invoke the HITLS_CFG_AddChainCert interface. The tlsConfig parameter is not empty and the addCert parameter
 *           is empty.Perform deep copy. Expected result 1 .
-*        3. Invoke the HITLS_CFG_AddChainCert interface. Ensure that tlsConfig is not empty and addCert is not empty.
+*        3. Invoke the HITLS_CFG_AddChainCert interface. Ensure that tlsConfig is not empty and addCert is not empty.
 *           Perform shallow copy. Expected result 2 .
 *       4. Invoke the HITLS_CFG_AddChainCert interface. The value of tlsConfig is not empty and the value of
-*           tlsConfig->certMgrCtx->currentCertIndex is greater than or equal to the maximum value TLS_CERT_KEY_TYPE_NUM.
+*           tlsConfig->certMgrCtx->currentCertKeyType is greater than or equal to the maximum value TLS_CERT_KEY_TYPE_UNKNOWN.
 *          Expected result 4 .
 *       5. Invoke the HITLS_CFG_GetChainCerts interface. Set tlsConfig to a value greater than or equal to the maximum
-*           value TLS_CERT_KEY_TYPE_NUM. (Expected result 3)
+*           value TLS_CERT_KEY_TYPE_UNKNOWN. (Expected result 3)
 *       6. Invoke the HITLS_CFG_GetChainCerts interface and leave tlsConfig blank. Expected result 3 .
 *       7. Invoke the HITLS_CFG_LoadKeyBuffer interface. Set tlsConfig->certMgrCtx to null and addCert to the
 *           certificate to be added. Perform deep copy. Expected result 5 .
@@ -1270,8 +1273,10 @@ void UT_TLS_CFG_ADD_CHAINCERT_API_TC001(int version, char *certFile, char *addCe
 {
     HitlsInit();
     HITLS_Config *tlsConfig = NULL;
-    HITLS_CERT_X509 *cert = HiTLS_X509_LoadCertFile(certFile);
-    HITLS_CERT_X509 *addCert = HiTLS_X509_LoadCertFile(addCertFile);
+    HITLS_CERT_X509 *cert = HITLS_CFG_ParseCert(tlsConfig, (const uint8_t *)certFile, strlen(certFile) + 1, TLS_PARSE_TYPE_FILE,
+        TLS_PARSE_FORMAT_ASN1);
+    cert = HiTLS_X509_LoadCertFile(tlsConfig, certFile);
+    HITLS_CERT_X509 *addCert = HiTLS_X509_LoadCertFile(tlsConfig, addCertFile);
 
     tlsConfig = HitlsNewCtx(version);
     ASSERT_TRUE(tlsConfig != NULL);
@@ -1281,16 +1286,16 @@ void UT_TLS_CFG_ADD_CHAINCERT_API_TC001(int version, char *certFile, char *addCe
     ASSERT_EQ(HITLS_CFG_AddChainCert(tlsConfig, addCert, false), HITLS_SUCCESS);
 
     ASSERT_TRUE(HITLS_CFG_GetChainCerts(tlsConfig) != NULL);
-    tlsConfig->certMgrCtx->currentCertIndex = TLS_CERT_KEY_TYPE_NUM;
+    tlsConfig->certMgrCtx->currentCertKeyType = TLS_CERT_KEY_TYPE_UNKNOWN;
     ASSERT_EQ(HITLS_CFG_AddChainCert(tlsConfig, cert, true), HITLS_CERT_ERR_ADD_CHAIN_CERT);
     ASSERT_TRUE(HITLS_CFG_GetChainCerts(tlsConfig) == NULL);
     ASSERT_TRUE(HITLS_CFG_GetChainCerts(NULL) == NULL);
     SAL_CERT_MgrCtxFree(tlsConfig->certMgrCtx);
     tlsConfig->certMgrCtx = NULL;
-    ASSERT_EQ(HITLS_CFG_AddChainCert(tlsConfig, cert, true), HITLS_UNREGISTERED_CALLBACK);
+    ASSERT_EQ(HITLS_CFG_AddChainCert(tlsConfig, cert, true), HITLS_NULL_INPUT);
     ASSERT_TRUE(HITLS_CFG_GetChainCerts(tlsConfig) == NULL);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
 }
 /* END_CASE */
@@ -1320,7 +1325,7 @@ void UT_HITLS_CFG_REMOVE_CERTANDKEY_API_TC001(int version, char *certFile, char 
 {
     HitlsInit();
     HITLS_Config *tlsConfig = NULL;
-    HITLS_CERT_X509 *cert = HiTLS_X509_LoadCertFile(certFile);
+    HITLS_CERT_X509 *cert = HiTLS_X509_LoadCertFile(tlsConfig, certFile);
 
     tlsConfig = HitlsNewCtx(version);
     ASSERT_TRUE(tlsConfig != NULL);
@@ -1328,7 +1333,11 @@ void UT_HITLS_CFG_REMOVE_CERTANDKEY_API_TC001(int version, char *certFile, char 
     ASSERT_EQ(HITLS_CFG_RemoveCertAndKey(tlsConfig), HITLS_SUCCESS);
 
     ASSERT_EQ(HITLS_CFG_SetCertificate(tlsConfig, cert, true), HITLS_SUCCESS);
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ASSERT_EQ(HITLS_CFG_ProviderLoadKeyFile(tlsConfig, keyFile, "ASN1", NULL), HITLS_SUCCESS);
+#else
     ASSERT_EQ(HITLS_CFG_LoadKeyFile(tlsConfig, keyFile, TLS_PARSE_FORMAT_ASN1), HITLS_SUCCESS);
+#endif
     ASSERT_TRUE(HITLS_CFG_GetCertificate(tlsConfig) != NULL);
     ASSERT_TRUE(HITLS_CFG_GetPrivateKey(tlsConfig) != NULL);
     ASSERT_EQ(HITLS_CFG_CheckPrivateKey(tlsConfig), HITLS_SUCCESS);
@@ -1337,7 +1346,7 @@ void UT_HITLS_CFG_REMOVE_CERTANDKEY_API_TC001(int version, char *certFile, char 
     ASSERT_TRUE(HITLS_CFG_GetCertificate(tlsConfig) == NULL);
     ASSERT_TRUE(HITLS_CFG_GetPrivateKey(tlsConfig) == NULL);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     SAL_CERT_X509Free(cert);
 }
@@ -1373,8 +1382,8 @@ void UT_HITLS_CFG_ADD_EXTRA_CHAINCERT_API_TC001(int version, char *certFile1, ch
 {
     HitlsInit();
     HITLS_Config *tlsConfig = NULL;
-    HITLS_CERT_X509 *cert1 = HiTLS_X509_LoadCertFile(certFile1);
-    HITLS_CERT_X509 *cert2 = HiTLS_X509_LoadCertFile(certFile2);
+    HITLS_CERT_X509 *cert1 = HiTLS_X509_LoadCertFile(tlsConfig, certFile1);
+    HITLS_CERT_X509 *cert2 = HiTLS_X509_LoadCertFile(tlsConfig, certFile2);
     tlsConfig = HitlsNewCtx(version);
     ASSERT_TRUE(tlsConfig != NULL);
     ASSERT_TRUE(HITLS_CFG_AddExtraChainCert(NULL, cert1) == HITLS_NULL_INPUT);
@@ -1390,7 +1399,7 @@ void UT_HITLS_CFG_ADD_EXTRA_CHAINCERT_API_TC001(int version, char *certFile1, ch
     ASSERT_TRUE(extraChainCert1->count == 2);
     ASSERT_TRUE(HITLS_CFG_GetExtraChainCerts(tlsConfig) != NULL);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
 }
 /* END_CASE */
@@ -1425,8 +1434,313 @@ void UT_TLS_CFG_SET_DTLS_MTU_API_TC001(void)
     server = FRAME_CreateLink(config, BSL_UIO_TCP);
     ASSERT_TRUE(server != NULL);
     ASSERT_TRUE(HITLS_SetMtu(server->ssl, mtu) == HITLS_SUCCESS);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
+    FRAME_FreeLink(client);
+    FRAME_FreeLink(server);
+}
+/* END_CASE */
+
+void Test_HITLS_KeyLogCb(HITLS_Ctx *ctx, const char *line)
+{
+    (void)ctx;
+    (void)line;
+    printf("there is Test_HITLS_KeyLogCb\n");
+}
+
+/* @
+* @test  UT_TLS_CFG_LogSecret_TC001
+* @spec  -
+* @title  Test the HITLS_LogSecret interface.
+* @precon  nan
+* @brief
+*           1. Transfer an empty context. The label and secret are not empty, and the secret length is not 0.
+*              Expected result 1 is obtained.
+*           2. Transfer a non-empty context. The label is empty, the secret is not empty,
+*              and the secret length is not 0. Expected result 1 is obtained.
+*           3. Transfer a non-empty context. The label is not empty, the secret is empty,
+*              and the secret length is not 0. Expected result 1 is obtained.
+*           4. Transfer a non-empty context. The label and secret are not empty, and the secret length is 0.
+*              Expected result 1 is obtained.
+*           5. Transfer a non-empty context. The label and secret are not empty, and the secret length is not 0.
+*              Expected result 2 is obtained.
+* @expect  1. return HITLS_NULL_INPUT
+*          2. return HITLS_SUCCES
+@ */
+/* BEGIN_CASE */
+void UT_TLS_CFG_LogSecret_TC001()
+{
+    FRAME_Init();
+    HITLS_Config *config = HITLS_CFG_NewTLS12Config();
+    ASSERT_TRUE(config != NULL);
+    HITLS_Ctx *ctx = NULL;
+    HITLS_CFG_SetKeyLogCb(config, Test_HITLS_KeyLogCb);
+    ctx = HITLS_New(config);
+    ASSERT_TRUE(ctx != NULL);
+
+    const char label[] = "hello";
+    const char secret[] = "hello123";
+
+    ASSERT_EQ(HITLS_LogSecret(NULL, label, (const uint8_t *)secret, strlen(secret)),  HITLS_NULL_INPUT);
+    ASSERT_EQ(HITLS_LogSecret(ctx, NULL, (const uint8_t *)secret, strlen(secret)),  HITLS_NULL_INPUT);
+    ASSERT_EQ(HITLS_LogSecret(ctx, label, NULL, strlen(secret)),  HITLS_NULL_INPUT);
+    ASSERT_EQ(HITLS_LogSecret(ctx, label, (const uint8_t *)secret, 0), HITLS_NULL_INPUT);
+    ASSERT_EQ(HITLS_LogSecret(ctx, label, (const uint8_t *)secret, strlen(secret)), HITLS_SUCCESS);
+EXIT:
+    HITLS_CFG_FreeConfig(config);
+    HITLS_Free(ctx);
+}
+/* END_CASE */
+
+/* @
+* @test  UT_TLS_CFG_SetTmpDhCb_TC001
+* @spec  -
+* @title  HITLS_CFG_SetTmpDhCb interface test. The config field is empty.
+* @precon  nan
+* @brief    1. If config is empty, expected result 1 is obtained.
+* @expect   1. HITLS_NULL_INPUT is returned.
+* @prior  Level 1
+* @auto  TRUE
+@ */
+/* BEGIN_CASE */
+void UT_TLS_CFG_SetTmpDhCb_TC001()
+{
+    // config is empty
+    ASSERT_TRUE(HITLS_CFG_SetTmpDhCb(NULL, DH_CB) == HITLS_NULL_INPUT);
+EXIT:
+    ;
+}
+/* END_CASE */
+
+/* @
+* @test  UT_TLS_CFG_GET_CIPHERSUITESBYSTDNAME_TC001
+* @spec  -
+* @title  HITLS_CFG_GetCipherSuiteByStdName connection
+* @precon  nan
+* @brief    1. Transfer a null pointer. Expected result 1 is obtained.
+*           2. Transfer the "TLS_RSA_WITH_AES_128_CBC_SHA" character string. Expected result 2 is obtained.
+*           3. Input the character string x. Expected result 3 is obtained.
+* @expect  1. return NULL
+*          2. return HITLS_RSA_WITH_AES_128_CBC_SHA
+*          3. return NULL
+@ */
+
+/* BEGIN_CASE */
+void UT_TLS_CFG_GET_CIPHERSUITESBYSTDNAME_TC001(void)
+{
+    const char *StdName = NULL;
+    ASSERT_TRUE(HITLS_CFG_GetCipherSuiteByStdName((const uint8_t *)StdName) == NULL);
+
+    const char StdName2[] = "TLS_RSA_WITH_AES_128_CBC_SHA";
+    const HITLS_Cipher* Cipher2 = HITLS_CFG_GetCipherSuiteByStdName((const uint8_t *)StdName2);
+    ASSERT_TRUE(Cipher2->cipherSuite == HITLS_RSA_WITH_AES_128_CBC_SHA);
+
+    const char StdName3[] = "x";
+    ASSERT_TRUE(HITLS_CFG_GetCipherSuiteByStdName((const uint8_t *)StdName3) == NULL);
+EXIT:
+    return;
+}
+/* END_CASE */
+
+/* @
+* @test  UT_TLS_CFG_CLEAR_CALIST_TC001
+* @title  HITLS_CFG_ClearCAList interface test
+* @precon  nan
+* @brief  1. pass NULL parameter, expect result 1
+*         2. pass config with NULL caList, expect result 1
+*         3. pass normal config, expect result 1
+* @expect 1. void function has no return value
+* @prior  Level 1
+* @auto  TRUE
+@ */
+/* BEGIN_CASE */
+void  UT_TLS_CFG_CLEAR_CALIST_TC001(void)
+{
+    FRAME_Init();
+
+    HITLS_Config *config = NULL;
+
+    config = HITLS_CFG_NewTLS12Config();
+    ASSERT_TRUE(config != NULL);
+    HITLS_Config *config2 = {0};
+
+    HITLS_CFG_ClearCAList(NULL);
+    HITLS_CFG_ClearCAList(config2);
+    HITLS_CFG_ClearCAList(config);
+EXIT:
+    HITLS_CFG_FreeConfig(config);
+}
+/* END_CASE */
+
+/* @
+* @test  UT_TLS_CFG_SET_GET_DHAUTOSUPPORT_TC001
+* @spec  -
+* @title  HITLS_CFG_SetDhAutoSupport and HITLS_CFG_GetDhAutoSupport contact
+* @precon  nan
+* @brief   HITLS_CFG_SetDhAutoSupport
+*          1. Import empty configuration information. Expected result 1 is obtained.
+*          2. Transfer non-empty configuration information and set support to an invalid value. Expected result 2 is obtained.
+*          3. Transfer non-empty configuration information and set support to a valid value. Expected result 3 is obtained.
+*          HITLS_CFG_GetDhAutoSupport
+*          1. Import empty configuration information. Expected result 1 is obtained.
+*          2. Transfer an empty isSupport pointer. Expected result 1 is obtained.
+*          3. Transfer the non-null configuration information and the isSupport pointer is not null. Expected result 3 is obtained.
+* @expect  1. return HITLS_NULL_INPUT
+*          2. return HITLS_SUCCES，and config->isSupportDhAuto is True
+*          3. return HITLS_SUCCES，and config->isSupportDhAuto is False or True
+@ */
+
+/* BEGIN_CASE */
+void UT_TLS_CFG_SET_GET_DHAUTOSUPPORT_TC001(int tlsVersion)
+{
+    FRAME_Init();
+    HITLS_Config *config = NULL;
+    bool support = -1;
+    uint8_t isSupport = -1;
+    ASSERT_TRUE(HITLS_CFG_SetDhAutoSupport(config, support) == HITLS_NULL_INPUT);
+    ASSERT_TRUE(HITLS_CFG_GetDhAutoSupport(config, &isSupport) == HITLS_NULL_INPUT);
+
+    switch (tlsVersion) {
+        case HITLS_VERSION_TLS12:
+            config = HITLS_CFG_NewTLS12Config();
+            break;
+        case HITLS_VERSION_TLS13:
+            config = HITLS_CFG_NewTLS13Config();
+            break;
+        default:
+            config = NULL;
+            break;
+    }
+
+    ASSERT_TRUE(HITLS_CFG_GetDhAutoSupport(config, NULL) == HITLS_NULL_INPUT);
+
+    support = true;
+    ASSERT_TRUE(HITLS_CFG_SetDhAutoSupport(config, support) == HITLS_SUCCESS);
+
+    support = -1;
+    ASSERT_TRUE(HITLS_CFG_SetDhAutoSupport(config, support) == HITLS_SUCCESS);
+    ASSERT_TRUE(HITLS_CFG_GetDhAutoSupport(config, &isSupport) == HITLS_SUCCESS);
+    ASSERT_TRUE(isSupport == true);
+
+    support = false;
+    ASSERT_TRUE(HITLS_CFG_SetDhAutoSupport(config, support) == HITLS_SUCCESS);
+    ASSERT_TRUE(HITLS_CFG_GetDhAutoSupport(config, &isSupport) == HITLS_SUCCESS);
+    ASSERT_TRUE(isSupport == false);
+EXIT:
+    HITLS_CFG_FreeConfig(config);
+}
+/* END_CASE */
+
+/* @
+* @test  UT_TLS_CFG_GET_READ_AHEAD_TC001
+* @title  HITLS_CFG_GetReadAhead interface test
+* @precon  nan
+* @brief  1. pass NULL config, expect result 1
+*         2. pass NULL onOff, expect result 1
+*         3. pass normal parameters, expect result 2
+* @expect 1. return HITLS_NULL_INPUT
+*         2. return HITLS_SUCCESS
+* @prior  Level 1
+* @auto  TRUE
+@ */
+/* BEGIN_CASE */
+void UT_TLS_CFG_GET_READ_AHEAD_TC001(void)
+{
+    FRAME_Init();
+
+    HITLS_Config *config = NULL;
+
+    config = HITLS_CFG_NewTLS12Config();
+    ASSERT_TRUE(config != NULL);
+
+    int32_t onOff = 0;
+    ASSERT_TRUE(HITLS_CFG_GetReadAhead(NULL, &onOff) == HITLS_NULL_INPUT);
+    ASSERT_TRUE(HITLS_CFG_GetReadAhead(config, NULL) == HITLS_NULL_INPUT);
+    ASSERT_TRUE(HITLS_CFG_GetReadAhead(config, &onOff) == HITLS_SUCCESS);
+EXIT:
+    HITLS_CFG_FreeConfig(config);
+}
+/* END_CASE */
+
+/* @
+* @test  UT_CONFIG_SET_KeyLogCb_TC001
+* @spec  -
+* @title  Test the HITLS_CFG_SetKeyLogCb and HITLS_CFG_GetKeyLogCb interfaces.
+* @precon  nan
+* @brief   HITLS_CFG_SetKeyLogCb and HITLS_CFG_GetKeyLogCb
+*          1. Import empty configuration information. Expected result 1 is obtained.
+*          2. Transfer non-empty configuration information and set callback to a non-empty value. Expected result 2 is obtained.
+* @expect  1. return HITLS_NULL_INPUT
+*          2. return HITLS_SUCCES
+@ */
+/* BEGIN_CASE */
+void UT_TLS_CFG_SET_KeyLogCb_TC001()
+{
+    FRAME_Init();
+    HITLS_Config *config = HITLS_CFG_NewTLS12Config();
+    ASSERT_TRUE(config != NULL);
+
+    ASSERT_TRUE(HITLS_CFG_SetKeyLogCb(NULL, Test_HITLS_KeyLogCb) ==  HITLS_NULL_INPUT);
+    ASSERT_TRUE(HITLS_CFG_SetKeyLogCb(config, Test_HITLS_KeyLogCb) ==  HITLS_SUCCESS);
+    ASSERT_EQ(HITLS_CFG_GetKeyLogCb(NULL), NULL);
+    ASSERT_EQ(HITLS_CFG_GetKeyLogCb(config), Test_HITLS_KeyLogCb);
+EXIT:
+    HITLS_CFG_FreeConfig(config);
+}
+/* END_CASE */
+
+int g_recordPaddingCbArg = 1;
+uint64_t RecordPaddingCb(HITLS_Ctx *ctx, int32_t type, uint64_t length, void *arg)
+{
+    (void)ctx;
+    (void)type;
+    (void)length;
+    ASSERT_TRUE(g_recordPaddingCbArg == (*(int *)arg));
+    ASSERT_TRUE(&g_recordPaddingCbArg == arg);
+EXIT:
+    return 0;
+}
+
+/** @
+* @test  UT_TLS_CFG_SET_RECORDPADDINGARG_API_TC002
+* @title  HITLS_CFG_SetRecordPaddingCbArg Connection
+* @precon  nan
+* @brief    1. Create tls13 config, expected result 1.
+            2. Set RecordPaddingCb and RecordPaddingCbArg to 1 for the client, Expected result 2.
+            3. Establish a connection, Verify that the arg passed in RecordPaddingCb matches the set arg.
+            Expected result 3.
+* @expect
+* 1. The creating is successful.
+* 2. The setting is successful.
+* 3. The arg value is the same，TLS1.3 connection are established.
+@ */
+/* BEGIN_CASE */
+void UT_TLS_CFG_SET_RECORDPADDINGARG_API_TC002()
+{
+    HitlsInit();
+    HITLS_Config *config_c = NULL;
+    HITLS_Config *config_s = NULL;
+    FRAME_LinkObj *client = NULL;
+    FRAME_LinkObj *server = NULL;
+
+    config_c = HITLS_CFG_NewTLS13Config();
+    config_s = HITLS_CFG_NewTLS13Config();
+    ASSERT_TRUE(config_c != NULL);
+    ASSERT_TRUE(config_s != NULL);
+
+    ASSERT_TRUE(HITLS_CFG_SetRecordPaddingCb(config_c, RecordPaddingCb) ==  HITLS_SUCCESS);
+    ASSERT_TRUE(HITLS_CFG_SetRecordPaddingCbArg(config_c, &g_recordPaddingCbArg) ==  HITLS_SUCCESS);
+
+    client = FRAME_CreateLink(config_c, BSL_UIO_TCP);
+    ASSERT_TRUE(client != NULL);
+    server = FRAME_CreateLink(config_s, BSL_UIO_TCP);
+    ASSERT_TRUE(server != NULL);
+
+    ASSERT_EQ(FRAME_CreateConnection(client, server, true, HS_STATE_BUTT), HITLS_SUCCESS);
+
+EXIT:
+    HITLS_CFG_FreeConfig(config_c);
+    HITLS_CFG_FreeConfig(config_s);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
 }

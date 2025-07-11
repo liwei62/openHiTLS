@@ -15,7 +15,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-
+#include "hitls_build.h"
 #include "securec.h"
 #include "cipher_suite.h"
 #include "bsl_err_internal.h"
@@ -37,7 +37,11 @@
 #include "hs_common.h"
 #include "session.h"
 #include "hs_verify.h"
+#include "pack_common.h"
+#include "custom_extensions.h"
 #include "pack_extensions.h"
+#include "config_type.h"
+
 
 #define EXTENSION_MSG(exMsgT, needP, packF) \
     .exMsgType = (exMsgT), \
@@ -48,10 +52,7 @@
 int32_t PackExtensionHeader(uint16_t exMsgType, uint16_t exMsgLen, uint8_t *buf, uint32_t bufLen)
 {
     if (bufLen < (HS_EX_HEADER_LEN + exMsgLen)) {
-        BSL_ERR_PUSH_ERROR(HITLS_PACK_NOT_ENOUGH_BUF_LENGTH);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15409, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "the buffer length of extension is not enough.", 0, 0, 0, 0);
-        return HITLS_PACK_NOT_ENOUGH_BUF_LENGTH;
+        return PackBufLenError(BINLOG_ID15409, BINGLOG_STR("extension"));
     }
 
     BSL_Uint16ToByte(exMsgType, buf);
@@ -59,17 +60,32 @@ int32_t PackExtensionHeader(uint16_t exMsgType, uint16_t exMsgLen, uint8_t *buf,
 
     return HITLS_SUCCESS;
 }
-bool Tls13NeedPack(uint32_t version)
+#ifdef HITLS_TLS_PROTO_TLS13
+
+static bool IsNeedPreSharedKey(const TLS_Ctx *ctx)
+{
+    if (ctx->config.tlsConfig.maxVersion != HITLS_VERSION_TLS13) {
+        return false;
+    }
+
+    if (ctx->hsCtx->state == TRY_SEND_HELLO_RETRY_REQUEST) {
+        /* hello retry request does not contain the psk */
+        return false;
+    }
+
+    return true;
+}
+
+bool Tls13NeedPack(const TLS_Ctx *ctx, uint32_t version)
 {
     bool tls13NeedPack = false;
-    if (IS_DTLS_VERSION(version)) {
+    if (IS_SUPPORT_DATAGRAM(ctx->config.tlsConfig.originVersionMask)) {
         tls13NeedPack = false;
     } else {
         tls13NeedPack = (version >= HITLS_VERSION_TLS13) ? true : false;
     }
     return tls13NeedPack;
 }
-
 static int32_t PackCookie(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
 {
     int32_t ret = HITLS_SUCCESS;
@@ -92,21 +108,7 @@ static int32_t PackCookie(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uin
     BSL_Uint16ToByte(cookieLen, &buf[offset]);
     offset += sizeof(uint16_t);
     /* Pack the cookie */
-    /* If the buffer length does not meet the requirement, return an error code. */
-    if (bufLen - offset < cookieLen) {
-        BSL_ERR_PUSH_ERROR(HITLS_PACK_COOKIE_ERR);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15410, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "the buffer length of cookie is not enough.", 0, 0, 0, 0);
-        return HITLS_PACK_COOKIE_ERR;
-    }
-
-    ret = memcpy_s(&buf[offset], bufLen - offset, ctx->negotiatedInfo.cookie, cookieLen);
-    if (ret != HITLS_SUCCESS) {
-        BSL_ERR_PUSH_ERROR(HITLS_MEMCPY_FAIL);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15411, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "memcpy fail when pack cookie.", 0, 0, 0, 0);
-        return HITLS_MEMCPY_FAIL;
-    }
+    (void)memcpy_s(&buf[offset], bufLen - offset, ctx->negotiatedInfo.cookie, cookieLen);
     offset += cookieLen;
 
     ctx->hsCtx->extFlag.haveCookie = true;
@@ -114,7 +116,70 @@ static int32_t PackCookie(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uin
     *usedLen = offset;
     return HITLS_SUCCESS;
 }
+#endif /* HITLS_TLS_PROTO_TLS13 */
+static int32_t PackPointFormats(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
+{
+    int32_t ret = HITLS_SUCCESS;
+    uint16_t exMsgHeaderLen = 0u;
+    uint8_t exMsgDataLen = 0u;
+    uint32_t offset = 0u;
+    const TLS_Config *config = &(ctx->config.tlsConfig);
 
+    if (config->pointFormatsSize == 0) {
+        *usedLen = 0;
+        return HITLS_SUCCESS;
+    }
+
+    if (config->pointFormats == NULL) {
+        BSL_ERR_PUSH_ERROR(HITLS_INTERNAL_EXCEPTION);
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15415, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+            "pack point formats extension error, invalid input parameter.", 0, 0, 0, 0);
+        return HITLS_INTERNAL_EXCEPTION;
+    }
+
+    /* Calculate the extension length */
+    exMsgHeaderLen = sizeof(uint8_t);
+    exMsgDataLen = (uint8_t)config->pointFormatsSize;
+
+    ret = PackExtensionHeader(HS_EX_TYPE_POINT_FORMATS, exMsgHeaderLen + exMsgDataLen, buf, bufLen);
+    if (ret != HITLS_SUCCESS) {
+        return ret;
+    }
+    offset += HS_EX_HEADER_LEN;
+
+    /* Pack the extension point format */
+    buf[offset] = exMsgDataLen;
+    offset += sizeof(uint8_t);
+    for (uint32_t index = 0; index < config->pointFormatsSize; index++) {
+        buf[offset] = config->pointFormats[index];
+        offset += sizeof(uint8_t);
+    }
+
+    /* Set the extension flag */
+    ctx->hsCtx->extFlag.havePointFormats = true;
+
+    *usedLen = offset;
+    return HITLS_SUCCESS;
+}
+
+int32_t PackEmptyExtension(uint16_t exMsgType, bool needPack, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
+{
+    uint32_t offset = 0u;
+    int32_t ret = 0;
+    if (needPack) {
+        ret = PackExtensionHeader(exMsgType, 0u, &buf[offset], bufLen - offset);
+        if (ret != HITLS_SUCCESS) {
+            return ret;
+        }
+        offset += HS_EX_HEADER_LEN;
+    }
+    /* Update the packet length */
+    *usedLen = offset;
+    return HITLS_SUCCESS;
+}
+
+#ifdef HITLS_TLS_HOST_CLIENT
+#ifdef HITLS_TLS_FEATURE_SNI
 static int32_t PackServerName(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
 {
     int32_t ret = HITLS_SUCCESS;
@@ -125,14 +190,19 @@ static int32_t PackServerName(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen,
     uint32_t hostNameSize, serverNameSize = 0u;
     const TLS_Config *config = &(ctx->config.tlsConfig);
     bool isNotTls13 = (config->maxVersion < HITLS_VERSION_TLS13 || config->maxVersion == HITLS_VERSION_DTLS12);
-
+    (void)isNotTls13;
+    (void)hostNameSize;
+    (void)hostName;
+#ifdef HITLS_TLS_FEATURE_SESSION
     /* When a session whose protocol version is earlier than HITLS_VERSION_TLS13 is resumed, the servername extension
      * field is the hostname in the session */
     if (isNotTls13 && ctx->session != NULL) {
         /* Obtain the hostname in the session */
         SESS_GetHostName(ctx->session, &hostNameSize, &hostName);
         serverName = hostName;
-    } else {
+    } else
+#endif
+    {
         /* Obtain the servername in the config */
         serverName = config->serverName;
     }
@@ -167,12 +237,7 @@ static int32_t PackServerName(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen,
     offset += sizeof(uint16_t);
 
     /* Server Name */
-    if (memcpy_s(&buf[offset], bufLen - offset, serverName, serverNameSize) != EOK) {
-        BSL_ERR_PUSH_ERROR(HITLS_MEMCPY_FAIL);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15412, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "memcpy fail when pack server_name.", 0, 0, 0, 0);
-        return HITLS_MEMCPY_FAIL;
-    }
+    (void)memcpy_s(&buf[offset], bufLen - offset, serverName, serverNameSize);
 
     offset += serverNameSize;
 
@@ -183,6 +248,27 @@ static int32_t PackServerName(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen,
     return HITLS_SUCCESS;
 }
 
+static bool IsNeedClientPackServerName(const TLS_Ctx *ctx)
+{
+    const TLS_Config *config = &(ctx->config.tlsConfig);
+
+    /* not in session resumption */
+    if (ctx->session == NULL) {
+        if (config->serverName == NULL) {
+            return false;
+        }
+    }
+
+    /* The session is being resumed */
+    if (ctx->session != NULL) {
+        if (config->maxVersion == HITLS_VERSION_TLS13 && config->serverName == NULL) {
+            return false;
+        }
+    }
+
+    return true;
+}
+#endif /* HITLS_TLS_FEATURE_SNI */
 static int32_t PackClientSignatureAlgorithms(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
 {
     int32_t ret = HITLS_SUCCESS;
@@ -203,13 +289,25 @@ static int32_t PackClientSignatureAlgorithms(const TLS_Ctx *ctx, uint8_t *buf, u
         return HITLS_INTERNAL_EXCEPTION;
     }
 
+    uint32_t signAlgorithmsSize = 0;
+    uint16_t *signAlgorithms = CheckSupportSignAlgorithms(ctx, config->signAlgorithms,
+        config->signAlgorithmsSize, &signAlgorithmsSize);
+    if (signAlgorithms == NULL || signAlgorithmsSize == 0) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID17309, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+            "no available signAlgorithms", 0, 0, 0, 0);
+        BSL_SAL_FREE(signAlgorithms);
+        ctx->method.sendAlert(ctx, ALERT_LEVEL_FATAL, ALERT_INTERNAL_ERROR);
+        return HITLS_CERT_ERR_NO_SIGN_SCHEME_MATCH;
+    }
+
     /* Calculate the extension length */
     exMsgHeaderLen = sizeof(uint16_t);
-    exMsgDataLen = sizeof(uint16_t) * (uint16_t)config->signAlgorithmsSize;
+    exMsgDataLen = sizeof(uint16_t) * (uint16_t)signAlgorithmsSize;
 
     /* Pack the extension header */
     ret = PackExtensionHeader(HS_EX_TYPE_SIGNATURE_ALGORITHMS, exMsgHeaderLen + exMsgDataLen, buf, bufLen);
     if (ret != HITLS_SUCCESS) {
+        BSL_SAL_FREE(signAlgorithms);
         return ret;
     }
     offset += HS_EX_HEADER_LEN;
@@ -217,10 +315,11 @@ static int32_t PackClientSignatureAlgorithms(const TLS_Ctx *ctx, uint8_t *buf, u
     /* Pack the extended signature algorithm. */
     BSL_Uint16ToByte(exMsgDataLen, &buf[offset]);
     offset += sizeof(uint16_t);
-    for (uint32_t index = 0; index < config->signAlgorithmsSize; index++) {
-        BSL_Uint16ToByte(config->signAlgorithms[index], &buf[offset]);
+    for (uint32_t index = 0; index < signAlgorithmsSize; index++) {
+        BSL_Uint16ToByte(signAlgorithms[index], &buf[offset]);
         offset += sizeof(uint16_t);
     }
+    BSL_SAL_FREE(signAlgorithms);
 
     /* Set the extension flag */
     ctx->hsCtx->extFlag.haveSignatureAlgorithms = true;
@@ -273,52 +372,7 @@ static int32_t PackClientSupportedGroups(const TLS_Ctx *ctx, uint8_t *buf, uint3
     *usedLen = offset;
     return HITLS_SUCCESS;
 }
-
-static int32_t PackPointFormats(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
-{
-    int32_t ret = HITLS_SUCCESS;
-    uint16_t exMsgHeaderLen = 0u;
-    uint8_t exMsgDataLen = 0u;
-    uint32_t offset = 0u;
-    const TLS_Config *config = &(ctx->config.tlsConfig);
-
-    if (config->pointFormatsSize == 0) {
-        *usedLen = 0;
-        return HITLS_SUCCESS;
-    }
-
-    if (config->pointFormats == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_INTERNAL_EXCEPTION);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15415, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "pack point formats extension error, invalid input parameter.", 0, 0, 0, 0);
-        return HITLS_INTERNAL_EXCEPTION;
-    }
-
-    /* Calculate the extension length */
-    exMsgHeaderLen = sizeof(uint8_t);
-    exMsgDataLen = (uint8_t)config->pointFormatsSize;
-
-    ret = PackExtensionHeader(HS_EX_TYPE_POINT_FORMATS, exMsgHeaderLen + exMsgDataLen, buf, bufLen);
-    if (ret != HITLS_SUCCESS) {
-        return ret;
-    }
-    offset += HS_EX_HEADER_LEN;
-
-    /* Pack the extension point format */
-    buf[offset] = exMsgDataLen;
-    offset += sizeof(uint8_t);
-    for (uint32_t index = 0; index < config->pointFormatsSize; index++) {
-        buf[offset] = config->pointFormats[index];
-        offset += sizeof(uint8_t);
-    }
-
-    /* Set the extension flag */
-    ctx->hsCtx->extFlag.havePointFormats = true;
-
-    *usedLen = offset;
-    return HITLS_SUCCESS;
-}
-
+#ifdef HITLS_TLS_FEATURE_ALPN
 static int32_t PackClientAlpnList(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
 {
     int32_t ret = HITLS_SUCCESS;
@@ -351,12 +405,9 @@ static int32_t PackClientAlpnList(const TLS_Ctx *ctx, uint8_t *buf, uint32_t buf
 
     BSL_Uint16ToByte(exMsgDataLen, &buf[offset]);
     offset += sizeof(uint16_t);
-    if (memcpy_s(&buf[offset], bufLen - offset, config->alpnList, config->alpnListSize) != EOK) {
-        BSL_ERR_PUSH_ERROR(HITLS_INTERNAL_EXCEPTION);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15417, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "pack alpn list extension error, memory copy failed.", 0, 0, 0, 0);
-        return HITLS_INTERNAL_EXCEPTION;
-    }
+
+    (void)memcpy_s(&buf[offset], bufLen - offset, config->alpnList, config->alpnListSize);
+
     offset += (config->alpnListSize);
 
     /* Set the extension flag */
@@ -365,7 +416,8 @@ static int32_t PackClientAlpnList(const TLS_Ctx *ctx, uint8_t *buf, uint32_t buf
     *usedLen = offset;
     return HITLS_SUCCESS;
 }
-
+#endif /* HITLS_TLS_FEATURE_ALPN */
+#ifdef HITLS_TLS_FEATURE_SESSION_TICKET
 static int32_t PackClientTicket(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
 {
     int32_t ret = HITLS_SUCCESS;
@@ -373,7 +425,6 @@ static int32_t PackClientTicket(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLe
     uint8_t *ticket = NULL;
     uint32_t ticketSize = 0;
     uint16_t sessVersion = HITLS_VERSION_TLS13;
-
     if (ctx->session != NULL) {
         HITLS_SESS_GetProtocolVersion(ctx->session, &sessVersion);
     }
@@ -389,12 +440,7 @@ static int32_t PackClientTicket(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLe
     }
     offset += HS_EX_HEADER_LEN;
 
-    if (ticketSize != 0 && memcpy_s(&buf[offset], bufLen - offset, ticket, ticketSize) != EOK) {
-        BSL_ERR_PUSH_ERROR(HITLS_INTERNAL_EXCEPTION);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15963, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            " pack ticket error, memory copy failed.", 0, 0, 0, 0);
-        return HITLS_INTERNAL_EXCEPTION;
-    }
+    (void)memcpy_s(&buf[offset], bufLen - offset, ticket, ticketSize);
     offset += ticketSize;
 
     /* Set the extension flag. */
@@ -403,22 +449,71 @@ static int32_t PackClientTicket(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLe
     *usedLen = offset;
     return HITLS_SUCCESS;
 }
-
-int32_t PackEmptyExtension(uint16_t exMsgType, bool needPack, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
+#endif /* HITLS_TLS_FEATURE_SESSION_TICKET */
+#ifdef HITLS_TLS_FEATURE_RENEGOTIATION
+static int32_t PackClientSecRenegoInfo(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
 {
-    uint32_t offset = 0u;
-    int32_t ret = 0;
-    if (needPack) {
-        ret = PackExtensionHeader(exMsgType, 0u, &buf[offset], bufLen - offset);
-        if (ret != HITLS_SUCCESS) {
-            return ret;
-        }
-        offset += HS_EX_HEADER_LEN;
+    if (!ctx->negotiatedInfo.isRenegotiation) {
+        *usedLen = 0;
+        return HITLS_SUCCESS;
     }
-    /* Update the message length */
+
+    /* Calculate the extension length */
+    const uint8_t *clientData = ctx->negotiatedInfo.clientVerifyData;
+    uint32_t clientDataSize = ctx->negotiatedInfo.clientVerifyDataSize;
+    uint16_t exMsgHeaderLen = sizeof(uint8_t);
+    uint16_t exMsgDataLen = (uint16_t)clientDataSize;
+
+    /* Pack the extension header */
+    int32_t ret;
+    uint32_t offset = 0;
+    ret = PackExtensionHeader(HS_EX_TYPE_RENEGOTIATION_INFO, exMsgHeaderLen + exMsgDataLen, buf, bufLen);
+    if (ret != HITLS_SUCCESS) {
+        return ret;
+    }
+    offset += HS_EX_HEADER_LEN;
+
+    /* Pack the length of secRenegoInfo */
+    buf[offset] = (uint8_t)clientDataSize;
+    offset++;
+
+    /* Pack the secRenegoInfo content */
+    (void)memcpy_s(&buf[offset], bufLen - offset, clientData, clientDataSize);
+    offset += clientDataSize;
+
     *usedLen = offset;
     return HITLS_SUCCESS;
 }
+#endif /* HITLS_TLS_FEATURE_RENEGOTIATION */
+static bool IsNeedPackEcExtension(const TLS_Ctx *ctx)
+{
+    const TLS_Config *config = &(ctx->config.tlsConfig);
+#ifdef HITLS_TLS_PROTO_TLS13
+    if ((config->maxVersion == HITLS_VERSION_TLS13)) {
+        uint32_t needKeyShareMode = TLS13_KE_MODE_PSK_WITH_DHE | TLS13_CERT_AUTH_WITH_DHE;
+        if ((ctx->negotiatedInfo.tls13BasicKeyExMode & needKeyShareMode) != 0) {
+            return true;
+        }
+    }
+#endif /* HITLS_TLS_PROTO_TLS13 */
+    for (uint32_t index = 0; index < config->cipherSuitesSize; index++) {
+        CipherSuiteInfo cipherInfo = {0};
+        /* The returned value does not need to be checked. The validity of the cipher suite is checked when the cipher
+         * suite is configured */
+        (void)CFG_GetCipherSuiteInfo(config->cipherSuites[index], &cipherInfo);
+
+        /* The ECC algorithm suite exists */
+        if ((cipherInfo.authAlg == HITLS_AUTH_ECDSA) ||
+            (cipherInfo.kxAlg == HITLS_KEY_EXCH_ECDHE) ||
+            (cipherInfo.kxAlg == HITLS_KEY_EXCH_ECDH) ||
+            (cipherInfo.kxAlg == HITLS_KEY_EXCH_ECDHE_PSK)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+#ifdef HITLS_TLS_PROTO_TLS13
 static int32_t PackClientSupportedVersions(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
 {
     int32_t ret = HITLS_SUCCESS;
@@ -509,19 +604,20 @@ static int32_t PackClientKeyShare(const TLS_Ctx *ctx, uint8_t *buf, uint32_t buf
     if ((ctx->negotiatedInfo.tls13BasicKeyExMode & needKeyShareMode) == 0) {
         return HITLS_SUCCESS;
     }
-    int32_t ret;
-    uint16_t exMsgHeaderLen;
-    uint16_t exMsgDataLen;
-    uint32_t pubKeyLen;
+
     uint32_t offset = 0u;
     KeyExchCtx *kxCtx = ctx->hsCtx->kxCtx;
     if (kxCtx == NULL) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID16939, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN, "kxCtx is null", 0, 0, 0, 0);
         BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
         return HITLS_NULL_INPUT;
     }
-    KeyShareParam *keyShare = &(kxCtx->keyExchParam.share);
 
-    pubKeyLen = HS_GetNamedCurvePubkeyLen(keyShare->group);
+    uint16_t keyShareLen = 0;
+
+    KeyShareParam *keyShare = &(kxCtx->keyExchParam.share);
+    uint32_t secondPubKeyLen = 0u;
+    uint32_t pubKeyLen = SAL_CRYPT_GetCryptLength(ctx, HITLS_CRYPT_INFO_CMD_GET_PUBLIC_KEY_LEN, keyShare->group);
     if (pubKeyLen == 0u) {
         BSL_ERR_PUSH_ERROR(HITLS_PACK_INVALID_KX_PUBKEY_LENGTH);
         BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15422, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
@@ -529,18 +625,25 @@ static int32_t PackClientKeyShare(const TLS_Ctx *ctx, uint8_t *buf, uint32_t buf
         return HITLS_PACK_INVALID_KX_PUBKEY_LENGTH;
     }
 
-    /* Calculate the extension length */
-    exMsgHeaderLen = sizeof(uint16_t);
-    /* Length of group + Length of KeyExChange + KeyExChange */
-    exMsgDataLen = sizeof(uint16_t) + sizeof(uint16_t) + (uint16_t)pubKeyLen;
+    keyShareLen += sizeof(uint16_t) + sizeof(uint16_t) + pubKeyLen;
+    if (keyShare->secondGroup != HITLS_NAMED_GROUP_BUTT) {
+        secondPubKeyLen = SAL_CRYPT_GetCryptLength(ctx, HITLS_CRYPT_INFO_CMD_GET_PUBLIC_KEY_LEN, keyShare->secondGroup);
+        if (secondPubKeyLen == 0u) {
+            BSL_ERR_PUSH_ERROR(HITLS_PACK_INVALID_KX_PUBKEY_LENGTH);
+            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15422, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+                "invalid keyShare length.", 0, 0, 0, 0);
+            return HITLS_PACK_INVALID_KX_PUBKEY_LENGTH;
+        }
+        keyShareLen += sizeof(uint16_t) + sizeof(uint16_t) + secondPubKeyLen;
+    }
 
-    ret = PackExtensionHeader(HS_EX_TYPE_KEY_SHARE, exMsgHeaderLen + exMsgDataLen, buf, bufLen);
+    int32_t ret = PackExtensionHeader(HS_EX_TYPE_KEY_SHARE, sizeof(uint16_t) + keyShareLen, buf, bufLen);
     if (ret != HITLS_SUCCESS) {
         return ret;
     }
     offset += HS_EX_HEADER_LEN;
     /* Pack the total length of client_keyShare */
-    BSL_Uint16ToByte(exMsgDataLen, &buf[offset]);
+    BSL_Uint16ToByte(keyShareLen, &buf[offset]);
     offset += sizeof(uint16_t);
     /* Pack a group */
     BSL_Uint16ToByte((uint16_t)keyShare->group, &buf[offset]);
@@ -549,6 +652,7 @@ static int32_t PackClientKeyShare(const TLS_Ctx *ctx, uint8_t *buf, uint32_t buf
     /* Length of the Pack KeyExChange */
     BSL_Uint16ToByte((uint16_t)pubKeyLen, &buf[offset]);
     offset += sizeof(uint16_t);
+
     uint32_t pubKeyUsedLen = 0;
     /* Pack KeyExChange */
     ret = SAL_CRYPT_EncodeEcdhPubKey(kxCtx->key, &buf[offset], pubKeyLen, &pubKeyUsedLen);
@@ -560,134 +664,23 @@ static int32_t PackClientKeyShare(const TLS_Ctx *ctx, uint8_t *buf, uint32_t buf
     }
     offset += pubKeyLen;
 
+    if (keyShare->secondGroup != HITLS_NAMED_GROUP_BUTT) {
+        BSL_Uint16ToByte((uint16_t)keyShare->secondGroup, &buf[offset]);
+        offset += sizeof(uint16_t);
+        BSL_Uint16ToByte((uint16_t)secondPubKeyLen, &buf[offset]);
+        offset += sizeof(uint16_t);
+        ret = SAL_CRYPT_EncodeEcdhPubKey(kxCtx->secondKey, &buf[offset], secondPubKeyLen, &pubKeyUsedLen);
+        if (ret != HITLS_SUCCESS || pubKeyUsedLen != secondPubKeyLen) {
+            BSL_ERR_PUSH_ERROR(HITLS_CRYPT_ERR_ENCODE_ECDH_KEY);
+            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15423, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+                "encode client keyShare key fail.", 0, 0, 0, 0);
+            return HITLS_CRYPT_ERR_ENCODE_ECDH_KEY;
+        }
+        offset += secondPubKeyLen;
+    }
+    *usedLen = offset;
     ctx->hsCtx->extFlag.haveKeyShare = true;
-    *usedLen = offset;
     return HITLS_SUCCESS;
-}
-
-static int32_t PackClientSecRenegoInfo(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
-{
-    if (!ctx->negotiatedInfo.isRenegotiation) {
-        *usedLen = 0;
-        return HITLS_SUCCESS;
-    }
-
-    /* Calculate the extension length */
-    const uint8_t *clientData = ctx->negotiatedInfo.clientVerifyData;
-    uint32_t clientDataSize = ctx->negotiatedInfo.clientVerifyDataSize;
-    uint16_t exMsgHeaderLen = sizeof(uint8_t);
-    uint16_t exMsgDataLen = (uint16_t)clientDataSize;
-
-    /* Pack the extension header */
-    int32_t ret;
-    uint32_t offset = 0;
-    ret = PackExtensionHeader(HS_EX_TYPE_RENEGOTIATION_INFO, exMsgHeaderLen + exMsgDataLen, buf, bufLen);
-    if (ret != HITLS_SUCCESS) {
-        return ret;
-    }
-    offset += HS_EX_HEADER_LEN;
-
-    if ((bufLen - offset) < sizeof(uint8_t)) {
-        BSL_ERR_PUSH_ERROR(HITLS_PACK_NOT_ENOUGH_BUF_LENGTH);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15424, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "bufLen not enough when pack client renegotiation info.", 0, 0, 0, 0);
-        return HITLS_PACK_NOT_ENOUGH_BUF_LENGTH;
-    }
-
-    /* Pack the length of secRenegoInfo */
-    buf[offset] = (uint8_t)clientDataSize;
-    offset++;
-
-    /* Pack the secRenegoInfo content */
-    if (memcpy_s(&buf[offset], bufLen - offset, clientData, clientDataSize) != EOK) {
-        BSL_ERR_PUSH_ERROR(HITLS_MEMALLOC_FAIL);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15425, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "copy clientVerifyData fail when pack client renegotiation info.", 0, 0, 0, 0);
-        return HITLS_MEMALLOC_FAIL;
-    }
-    offset += clientDataSize;
-
-    *usedLen = offset;
-    return HITLS_SUCCESS;
-}
-
-static bool IsNeedPackEcExtension(const TLS_Ctx *ctx)
-{
-    const TLS_Config *config = &(ctx->config.tlsConfig);
-
-    if ((config->maxVersion == HITLS_VERSION_TLS13)) {
-        uint32_t needKeyShareMode = TLS13_KE_MODE_PSK_WITH_DHE | TLS13_CERT_AUTH_WITH_DHE;
-        if ((ctx->negotiatedInfo.tls13BasicKeyExMode & needKeyShareMode) != 0) {
-            return true;
-        }
-    }
-
-    for (uint32_t index = 0; index < config->cipherSuitesSize; index++) {
-        CipherSuiteInfo cipherInfo = {0};
-        /* The returned value does not need to be checked. The validity of the cipher suite is checked when the cipher
-         * suite is configured */
-        (void)CFG_GetCipherSuiteInfo(config->cipherSuites[index], &cipherInfo);
-
-        /* The ECC algorithm suite exists */
-        if ((cipherInfo.authAlg == HITLS_AUTH_ECDSA) ||
-            (cipherInfo.kxAlg == HITLS_KEY_EXCH_ECDHE) ||
-            (cipherInfo.kxAlg == HITLS_KEY_EXCH_ECDH) ||
-            (cipherInfo.kxAlg == HITLS_KEY_EXCH_ECDHE_PSK)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-static bool IsServerNeedPackEcExtension(const TLS_Ctx *ctx)
-{
-    const TLS_NegotiatedInfo *negotiatedInfo = &(ctx->negotiatedInfo);
-    CipherSuiteInfo cipherInfo = negotiatedInfo->cipherSuiteInfo;
-
-    /* The negotiated algorithm suite is the ECC cipher suite */
-    if (((cipherInfo.authAlg == HITLS_AUTH_ECDSA) || (cipherInfo.kxAlg == HITLS_KEY_EXCH_ECDHE) ||
-        (cipherInfo.kxAlg == HITLS_KEY_EXCH_ECDH) || (cipherInfo.kxAlg == HITLS_KEY_EXCH_ECDHE_PSK)) &&
-        ctx->haveClientPointFormats == true) {
-        return true;
-    }
-
-    return false;
-}
-
-static bool IsNeedClientPackServerName(const TLS_Ctx *ctx)
-{
-    const TLS_Config *config = &(ctx->config.tlsConfig);
-
-    /* not in session resumption */
-    if (ctx->session == NULL) {
-        if (config->serverName == NULL) {
-            return false;
-        }
-    }
-
-    /* The session is being resume */
-    if (ctx->session != NULL) {
-        if (config->maxVersion == HITLS_VERSION_TLS13 && config->serverName == NULL) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static bool IsNeedPreSharedKey(const TLS_Ctx *ctx)
-{
-    if (ctx->config.tlsConfig.maxVersion != HITLS_VERSION_TLS13) {
-        return false;
-    }
-
-    if (ctx->hsCtx->state == TRY_SEND_HELLO_RETRY_REQUEST) {
-        /* hello retry request does not contain the psk */
-        return false;
-    }
-
-    return true;
 }
 
 static uint32_t GetPreSharedKeyExtLen(const PskInfo13 *pskInfo)
@@ -695,7 +688,7 @@ static uint32_t GetPreSharedKeyExtLen(const PskInfo13 *pskInfo)
     uint32_t extLen =  HS_EX_HEADER_LEN;
     uint32_t binderLen = 0;
     if (pskInfo->resumeSession != NULL) {
-        HITLS_HashAlgo hashAlg = HITLS_HASH_NULL;
+        HITLS_HashAlgo hashAlg = HITLS_HASH_BUTT;
         binderLen = HS_GetBinderLen(pskInfo->resumeSession, &hashAlg);
         if (binderLen == 0) {
             return 0;
@@ -707,7 +700,7 @@ static uint32_t GetPreSharedKeyExtLen(const PskInfo13 *pskInfo)
     }
 
     if (pskInfo->userPskSess != NULL) {
-        HITLS_HashAlgo hashAlg = HITLS_HASH_NULL;
+        HITLS_HashAlgo hashAlg = HITLS_HASH_BUTT;
         binderLen = HS_GetBinderLen(pskInfo->userPskSess->pskSession, &hashAlg);
         if (binderLen == 0) {
             return 0;
@@ -769,20 +762,18 @@ static int32_t PackClientPreSharedKey(const TLS_Ctx *ctx, uint8_t *buf, uint32_t
         return HITLS_PACK_PRE_SHARED_KEY_ERR;
     }
     if (minLen > bufLen) {
-        BSL_ERR_PUSH_ERROR(HITLS_PACK_NOT_ENOUGH_BUF_LENGTH);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15446, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "the buffer length of extension is not enough.", 0, 0, 0, 0);
-        return HITLS_PACK_NOT_ENOUGH_BUF_LENGTH;
+        return PackBufLenError(BINLOG_ID16159, BINGLOG_STR("extension"));
     }
     (void)PackExtensionHeader(HS_EX_TYPE_PRE_SHARED_KEY, (uint16_t)(minLen - HS_EX_HEADER_LEN), buf, bufLen);
     uint32_t offset = HS_EX_HEADER_LEN;
     (void)PackClientPreSharedKeyIdentity(ctx, buf, bufLen, &offset);
-    // pack binder after fills in the message header and extension length. call PackClientPreSharedKeyBinders
+    // pack binder after fills in the packet header and extension length. call PackClientPreSharedKeyBinders
     ctx->hsCtx->extFlag.havePreShareKey = true;
     *usedLen = minLen;
     return HITLS_SUCCESS;
 }
 
+#ifdef HITLS_TLS_FEATURE_PHA
 static bool IsNeedPackPha(const TLS_Ctx *ctx)
 {
     const TLS_Config *tlsConfig = &ctx->config.tlsConfig;
@@ -791,7 +782,8 @@ static bool IsNeedPackPha(const TLS_Ctx *ctx)
     }
     return tlsConfig->isSupportPostHandshakeAuth;
 }
-
+#endif /* HITLS_TLS_FEATURE_PHA */
+#endif /* HITLS_TLS_PROTO_TLS13 */
 static int32_t PackExtensions(const TLS_Ctx *ctx, uint8_t *buf, uint32_t *bufLen,
     PackExtInfo *extMsgList, uint32_t listSize)
 {
@@ -824,16 +816,8 @@ static int32_t PackExtensions(const TLS_Ctx *ctx, uint8_t *buf, uint32_t *bufLen
 
 static bool IsNeedEms(const TLS_Ctx *ctx)
 {
-    if (ctx->config.tlsConfig.maxVersion == HITLS_VERSION_TLCP11) {
+    if (ctx->config.tlsConfig.maxVersion == HITLS_VERSION_TLCP_DTLCP11) {
         return false;
-    }
-    if (ctx->config.tlsConfig.isSupportExtendMasterSecret) {
-        return true;
-    }
-    if (ctx->session != NULL) {
-        uint8_t haveExtMasterSecret;
-        HITLS_SESS_GetHaveExtMasterSecret(ctx->session, &haveExtMasterSecret);
-        return haveExtMasterSecret != 0;
     }
     return true;
 }
@@ -843,49 +827,88 @@ static int32_t PackClientExtensions(const TLS_Ctx *ctx, uint8_t *buf, uint32_t b
 {
     int32_t ret = HITLS_SUCCESS;
     const TLS_Config *tlsConfig = &ctx->config.tlsConfig;
+    (void)tlsConfig;
+#ifdef HITLS_TLS_FEATURE_RENEGOTIATION
     const TLS_NegotiatedInfo *negoInfo = &ctx->negotiatedInfo;
-
+#endif /* HITLS_TLS_FEATURE_RENEGOTIATION */
+#ifdef HITLS_TLS_PROTO_TLS13
     bool isTls13 = (tlsConfig->maxVersion == HITLS_VERSION_TLS13);
-
+#endif /* HITLS_TLS_PROTO_TLS13 */
     /* Check whether EC extensions need to be filled */
     bool isEcNeed = IsNeedPackEcExtension(ctx);
 
     /* If the version is earlier than tls1.2, the signature extension cannot be sent */
     bool isSignAlgNeed = (ctx->config.tlsConfig.maxVersion >= HITLS_VERSION_TLS12);
-
-    bool isSessionTicketNeed = IsTicketSupport((TLS_Ctx *)ctx);
-
+#ifdef HITLS_TLS_FEATURE_SESSION_TICKET
+    /* Do not send the sessionticket in the PTO scenario */
+    bool isSessionTicketNeed = IsTicketSupport(ctx);
+#endif /* HITLS_TLS_FEATURE_SESSION_TICKET */
+#ifdef HITLS_TLS_FEATURE_PHA
     bool isNeedPha = IsNeedPackPha(ctx);
-
+#endif /* HITLS_TLS_FEATURE_PHA */
     PackExtInfo extMsgList[] = {
+#ifdef HITLS_TLS_FEATURE_SNI
         { EXTENSION_MSG(HS_EX_TYPE_SERVER_NAME, IsNeedClientPackServerName(ctx), PackServerName) },
+#endif /* HITLS_TLS_FEATURE_SNI */
         { EXTENSION_MSG(HS_EX_TYPE_SIGNATURE_ALGORITHMS, isSignAlgNeed, PackClientSignatureAlgorithms) },
         { EXTENSION_MSG(HS_EX_TYPE_SUPPORTED_GROUPS, isEcNeed, PackClientSupportedGroups) },
         { EXTENSION_MSG(HS_EX_TYPE_POINT_FORMATS, isEcNeed, PackPointFormats) },
+#ifdef HITLS_TLS_PROTO_TLS13
         { EXTENSION_MSG(HS_EX_TYPE_SUPPORTED_VERSIONS, isTls13, PackClientSupportedVersions) },
+#endif /* HITLS_TLS_PROTO_TLS13 */
         { EXTENSION_MSG(HS_EX_TYPE_EARLY_DATA, false, NULL) },
+#ifdef HITLS_TLS_PROTO_TLS13
         { EXTENSION_MSG(HS_EX_TYPE_COOKIE, isTls13, PackCookie) },
+#ifdef HITLS_TLS_FEATURE_PHA
         { EXTENSION_MSG(HS_EX_TYPE_POST_HS_AUTH, isNeedPha, NULL) },
+#endif /* HITLS_TLS_FEATURE_PHA */
+#endif /* HITLS_TLS_PROTO_TLS13 */
         { EXTENSION_MSG(HS_EX_TYPE_EXTENDED_MASTER_SECRET, IsNeedEms(ctx), NULL) },
-        { EXTENSION_MSG(HS_EX_TYPE_APP_LAYER_PROTOCOLS, (tlsConfig->alpnList != NULL), PackClientAlpnList) },
+#ifdef HITLS_TLS_FEATURE_ALPN
+        { EXTENSION_MSG(HS_EX_TYPE_APP_LAYER_PROTOCOLS, (tlsConfig->alpnList != NULL && 
+            ctx->state == CM_STATE_HANDSHAKING), PackClientAlpnList) },
+#endif /* HITLS_TLS_FEATURE_ALPN */
+#ifdef HITLS_TLS_PROTO_TLS13
         { EXTENSION_MSG(HS_EX_TYPE_PSK_KEY_EXCHANGE_MODES, isTls13, PackClientPskKeyExModes) },
         { EXTENSION_MSG(HS_EX_TYPE_KEY_SHARE, isTls13, PackClientKeyShare) },
+#endif /* HITLS_TLS_PROTO_TLS13 */
+#ifdef HITLS_TLS_FEATURE_RENEGOTIATION
         { EXTENSION_MSG(HS_EX_TYPE_RENEGOTIATION_INFO, negoInfo->isSecureRenegotiation, PackClientSecRenegoInfo) },
+#endif /* HITLS_TLS_FEATURE_RENEGOTIATION */
+#ifdef HITLS_TLS_FEATURE_SESSION_TICKET
         { EXTENSION_MSG(HS_EX_TYPE_SESSION_TICKET, isSessionTicketNeed, PackClientTicket) },
+#endif /* HITLS_TLS_FEATURE_SESSION_TICKET */
+#ifdef HITLS_TLS_FEATURE_ETM
         { EXTENSION_MSG(HS_EX_TYPE_ENCRYPT_THEN_MAC, tlsConfig->isEncryptThenMac, NULL) },
-        /* The preshare key must be the last extension */
+#endif /* HITLS_TLS_FEATURE_ETM */
+#ifdef HITLS_TLS_PROTO_TLS13
         { EXTENSION_MSG(HS_EX_TYPE_PRE_SHARED_KEY, IsNeedPreSharedKey(ctx), PackClientPreSharedKey) },
+#endif /* HITLS_TLS_PROTO_TLS13 */
     };
 
-    uint32_t tmpBufLen = bufLen;
-    ret = PackExtensions(ctx, buf, &tmpBufLen, extMsgList, sizeof(extMsgList) / sizeof(extMsgList[0]));
+    uint32_t exLen = 0;
+    uint32_t offset = 0;
+    if (IsPackNeedCustomExtensions(CUSTOM_EXT_FROM_CTX(ctx), HITLS_EX_TYPE_CLIENT_HELLO)) {
+        ret = PackCustomExtensions(ctx, &buf[offset], bufLen - offset, &exLen, HITLS_EX_TYPE_CLIENT_HELLO, NULL, 0);
+        if (ret != HITLS_SUCCESS) {
+            return ret;
+        }
+        offset += exLen;
+    }
+
+    uint32_t tmpBufLen = bufLen - offset;
+    ret = PackExtensions(ctx, &buf[offset], &tmpBufLen, extMsgList, sizeof(extMsgList) / sizeof(extMsgList[0]));
     if (ret != HITLS_SUCCESS) {
         return ret;
     }
-    *usedLen = tmpBufLen;
+    *usedLen = tmpBufLen + exLen;
+#ifdef HITLS_TLS_FEATURE_PHA
     ctx->hsCtx->extFlag.havePostHsAuth = isNeedPha;
+#endif /* HITLS_TLS_FEATURE_PHA */
     ctx->hsCtx->extFlag.haveExtendedMasterSecret = IsNeedEms(ctx);
+#ifdef HITLS_TLS_FEATURE_ETM
     ctx->hsCtx->extFlag.haveEncryptThenMac = ctx->config.tlsConfig.isEncryptThenMac;
+#endif /* HITLS_TLS_FEATURE_ETM */
     return HITLS_SUCCESS;
 }
 
@@ -896,13 +919,10 @@ int32_t PackClientExtension(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, u
     uint32_t headerLen = 0u;
     uint32_t exLen = 0u;
 
-    /* Obtain the message header length */
+    /* Obtain the packet header length */
     headerLen = sizeof(uint16_t);
     if (bufLen < headerLen) {
-        BSL_ERR_PUSH_ERROR(HITLS_PACK_NOT_ENOUGH_BUF_LENGTH);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15426, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "the buffer length of client hello extension message is not enough.", 0, 0, 0, 0);
-        return HITLS_PACK_NOT_ENOUGH_BUF_LENGTH;
+        return PackBufLenError(BINLOG_ID15426, BINGLOG_STR("client extension"));
     }
 
     /* Pack the client hello extension content */
@@ -920,8 +940,24 @@ int32_t PackClientExtension(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, u
 
     return ret;
 }
+#endif /* HITLS_TLS_HOST_CLIENT */
+#ifdef HITLS_TLS_HOST_SERVER
+static bool IsServerNeedPackEcExtension(const TLS_Ctx *ctx)
+{
+    const TLS_NegotiatedInfo *negotiatedInfo = &(ctx->negotiatedInfo);
+    CipherSuiteInfo cipherInfo = negotiatedInfo->cipherSuiteInfo;
 
-static int32_t PackServerSelectAlpnProto(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
+    /* The negotiated algorithm suite is the ECC cipher suite */
+    if (((cipherInfo.authAlg == HITLS_AUTH_ECDSA) || (cipherInfo.kxAlg == HITLS_KEY_EXCH_ECDHE) ||
+        (cipherInfo.kxAlg == HITLS_KEY_EXCH_ECDH) || (cipherInfo.kxAlg == HITLS_KEY_EXCH_ECDHE_PSK)) &&
+        ctx->haveClientPointFormats == true) {
+        return true;
+    }
+
+    return false;
+}
+#ifdef HITLS_TLS_FEATURE_ALPN
+int32_t PackServerSelectAlpnProto(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
 {
     int32_t ret = HITLS_SUCCESS;
     uint16_t exMsgHeaderLen = 0u;
@@ -948,13 +984,8 @@ static int32_t PackServerSelectAlpnProto(const TLS_Ctx *ctx, uint8_t *buf, uint3
     offset += sizeof(uint16_t);
     buf[offset] = exMsgDataLen - sizeof(uint8_t);
     offset += sizeof(uint8_t);
-    if (memcpy_s(&buf[offset], bufLen - offset, ctx->negotiatedInfo.alpnSelected,
-        ctx->negotiatedInfo.alpnSelectedSize) != EOK) {
-        BSL_ERR_PUSH_ERROR(HITLS_INTERNAL_EXCEPTION);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15427, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "pack alpn list extension error, memory copy failed.", 0, 0, 0, 0);
-        return HITLS_INTERNAL_EXCEPTION;
-    }
+    (void)memcpy_s(&buf[offset], bufLen - offset, ctx->negotiatedInfo.alpnSelected,
+        ctx->negotiatedInfo.alpnSelectedSize);
     offset += ctx->negotiatedInfo.alpnSelectedSize;
 
     /* Set the extension flag */
@@ -963,7 +994,8 @@ static int32_t PackServerSelectAlpnProto(const TLS_Ctx *ctx, uint8_t *buf, uint3
     *usedLen = offset;
     return HITLS_SUCCESS;
 }
-
+#endif /* HITLS_TLS_FEATURE_ALPN */
+#ifdef HITLS_TLS_PROTO_TLS13
 static int32_t PackHrrKeyShare(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
 {
     int32_t ret = HITLS_SUCCESS;
@@ -991,8 +1023,6 @@ static int32_t PackHrrKeyShare(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen
 
 static int32_t PackServerKeyShare(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
 {
-    int32_t ret = HITLS_SUCCESS;
-    uint16_t exMsgDataLen = 0u;
     uint32_t pubKeyLen = 0u;
     uint32_t offset = 0u;
     KeyShareParam *keyShare = &(ctx->hsCtx->kxCtx->keyExchParam.share);
@@ -1003,9 +1033,14 @@ static int32_t PackServerKeyShare(const TLS_Ctx *ctx, uint8_t *buf, uint32_t buf
     if (kxCtx->peerPubkey == NULL) {
         return HITLS_SUCCESS;
     }
-
-    pubKeyLen = HS_GetNamedCurvePubkeyLen(keyShare->group);
-    if (pubKeyLen == 0u) {
+    const TLS_GroupInfo *groupInfo = ConfigGetGroupInfo(&ctx->config.tlsConfig, ctx->negotiatedInfo.negotiatedGroup);
+    if (groupInfo == NULL) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID16246, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+            "group info not found", 0, 0, 0, 0);
+        return HITLS_INVALID_INPUT;
+    }
+    pubKeyLen = groupInfo->isKem ? groupInfo->ciphertextLen : groupInfo->pubkeyLen;
+    if (pubKeyLen == 0u || (groupInfo->isKem && pubKeyLen != kxCtx->ciphertextLen)) {
         BSL_ERR_PUSH_ERROR(HITLS_PACK_INVALID_KX_PUBKEY_LENGTH);
         BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15428, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
             "invalid keyShare length.", 0, 0, 0, 0);
@@ -1013,9 +1048,9 @@ static int32_t PackServerKeyShare(const TLS_Ctx *ctx, uint8_t *buf, uint32_t buf
     }
 
     /* Length of group + Length of KeyExChange + KeyExChange */
-    exMsgDataLen = sizeof(uint16_t) + sizeof(uint16_t) + (uint16_t)pubKeyLen;
+    uint16_t exMsgDataLen = sizeof(uint16_t) + sizeof(uint16_t) + (uint16_t)pubKeyLen;
 
-    ret = PackExtensionHeader(HS_EX_TYPE_KEY_SHARE, exMsgDataLen, buf, bufLen);
+    int32_t ret = PackExtensionHeader(HS_EX_TYPE_KEY_SHARE, exMsgDataLen, buf, bufLen);
     if (ret != HITLS_SUCCESS) {
         return ret;
     }
@@ -1028,19 +1063,23 @@ static int32_t PackServerKeyShare(const TLS_Ctx *ctx, uint8_t *buf, uint32_t buf
     /* Length of the paced KeyExChange */
     BSL_Uint16ToByte((uint16_t)pubKeyLen, &buf[offset]);
     offset += sizeof(uint16_t);
+
     uint32_t pubKeyUsedLen = 0;
-    /* Pack KeyExChange */
-    ret = SAL_CRYPT_EncodeEcdhPubKey(kxCtx->key, &buf[offset], pubKeyLen, &pubKeyUsedLen);
-    if (ret != HITLS_SUCCESS || pubKeyLen != pubKeyUsedLen) {
-        BSL_ERR_PUSH_ERROR(HITLS_CRYPT_ERR_ENCODE_ECDH_KEY);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15429, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "encode server keyShare key fail.", 0, 0, 0, 0);
-        return HITLS_CRYPT_ERR_ENCODE_ECDH_KEY;
+    if (groupInfo->isKem) {
+        (void)memcpy_s(&buf[offset], pubKeyLen, kxCtx->ciphertext, kxCtx->ciphertextLen);
+    } else {
+        ret = SAL_CRYPT_EncodeEcdhPubKey(kxCtx->key, &buf[offset], pubKeyLen, &pubKeyUsedLen);
+        if (ret != HITLS_SUCCESS || pubKeyLen != pubKeyUsedLen) {
+            BSL_ERR_PUSH_ERROR(HITLS_CRYPT_ERR_ENCODE_ECDH_KEY);
+            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15429, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+                "encode server keyShare key fail.", 0, 0, 0, 0);
+            return HITLS_CRYPT_ERR_ENCODE_ECDH_KEY;
+        }
     }
-    offset += pubKeyLen;
+    /* Pack KeyExChange */
 
     ctx->hsCtx->extFlag.haveKeyShare = true;
-    *usedLen = offset;
+    *usedLen = offset + pubKeyLen;
     return HITLS_SUCCESS;
 }
 
@@ -1076,96 +1115,12 @@ static int32_t PackServerSupportedVersion(const TLS_Ctx *ctx, uint8_t *buf, uint
     return HITLS_SUCCESS;
 }
 
-static int32_t PackServerSecRenegoInfo(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
-{
-    bool isRenegotiation = ctx->negotiatedInfo.isRenegotiation;
-    const uint8_t *clientData = ctx->negotiatedInfo.clientVerifyData;
-    uint32_t clientDataSize = ctx->negotiatedInfo.clientVerifyDataSize;
-    const uint8_t *serverData = ctx->negotiatedInfo.serverVerifyData;
-    uint32_t serverDataSize = ctx->negotiatedInfo.serverVerifyDataSize;
-    /* Calculate the extension length */
-    uint16_t exMsgHeaderLen = sizeof(uint8_t);
-    /* For renegotiation, the verify data (client data + server data) must be assembled */
-    uint16_t exMsgDataLen = (uint16_t)(isRenegotiation ? (clientDataSize + serverDataSize) : 0);
-
-    uint32_t offset = 0;
-    int32_t ret = PackExtensionHeader(HS_EX_TYPE_RENEGOTIATION_INFO, exMsgHeaderLen + exMsgDataLen, buf, bufLen);
-    if (ret != HITLS_SUCCESS) {
-        return ret;
-    }
-    offset += HS_EX_HEADER_LEN;
-
-    if ((bufLen - offset) < sizeof(uint8_t)) {
-        BSL_ERR_PUSH_ERROR(HITLS_PACK_NOT_ENOUGH_BUF_LENGTH);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15431, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "bufLen not enough when pack server renegotiation info.", 0, 0, 0, 0);
-        return HITLS_PACK_NOT_ENOUGH_BUF_LENGTH;
-    }
-
-    if (!isRenegotiation) {
-        buf[offset++] = 0;
-        *usedLen = offset;
-        return HITLS_SUCCESS;
-    }
-
-    /* Pack the length of secRenegoInfo */
-    buf[offset++] = (uint8_t)(clientDataSize + serverDataSize);
-
-    /* Pack the secRenegoInfo content */
-    if (memcpy_s(&buf[offset], bufLen - offset, clientData, clientDataSize) != EOK) {
-        BSL_ERR_PUSH_ERROR(HITLS_MEMALLOC_FAIL);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15432, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "copy clientVerifyData fail when pack server renegotiation info.", 0, 0, 0, 0);
-        return HITLS_MEMALLOC_FAIL;
-    }
-    offset += clientDataSize;
-
-    if (bufLen - offset < serverDataSize) {
-        return HITLS_PACK_NOT_ENOUGH_BUF_LENGTH;
-    }
-
-    if (memcpy_s(&buf[offset], bufLen - offset, serverData, serverDataSize) != EOK) {
-        BSL_ERR_PUSH_ERROR(HITLS_MEMALLOC_FAIL);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15433, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "copy serverVerifyData fail when pack server renegotiation info.", 0, 0, 0, 0);
-        return HITLS_MEMALLOC_FAIL;
-    }
-    offset += serverDataSize;
-
-    *usedLen = offset;
-    return HITLS_SUCCESS;
-}
-
 static int32_t IsHrrKeyShare(const TLS_Ctx *ctx)
 {
     bool haveHrr = ctx->hsCtx->haveHrr; /* Sent or in the process of sending hrr */
     bool haveKeyShare = ctx->hsCtx->extFlag.haveKeyShare; /* has packed the keyshare */
 
     if (haveHrr && !haveKeyShare) {
-        return true;
-    }
-    return false;
-}
-
-static bool IsNeedServerPackServerName(const TLS_Ctx *ctx)
-{
-    const TLS_Config *config = &(ctx->config.tlsConfig);
-    const TLS_NegotiatedInfo *negoInfo = &ctx->negotiatedInfo;
-
-    /* The protocol version is earlier than tls1.3 and the server accepts the server name. The server hello message sent
-     * by the server contains an empty server name extension */
-    if (negoInfo->isSniStateOK &&
-        (config->maxVersion < HITLS_VERSION_TLS13 || config->maxVersion == HITLS_VERSION_DTLS12)) {
-        return true;
-    }
-    return false;
-}
-
-static bool IsNeedServerPackEncryptThenMac(const TLS_Ctx *ctx)
-{
-    const TLS_Config *config = &(ctx->config.tlsConfig);
-    const TLS_NegotiatedInfo *negoInfo = &ctx->negotiatedInfo;
-    if (config->isEncryptThenMac && negoInfo->isEncryptThenMac) {
         return true;
     }
     return false;
@@ -1187,7 +1142,74 @@ static int32_t PackServerPreSharedKey(const TLS_Ctx *ctx, uint8_t *buf, uint32_t
 
     return HITLS_SUCCESS;
 }
+#endif /* HITLS_TLS_PROTO_TLS13 */
+#if defined(HITLS_TLS_PROTO_TLS_BASIC) || defined(HITLS_TLS_PROTO_DTLS12)
+static int32_t PackServerSecRenegoInfo(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
+{
+    bool isRenegotiation = ctx->negotiatedInfo.isRenegotiation;
+    const uint8_t *clientData = ctx->negotiatedInfo.clientVerifyData;
+    uint32_t clientDataSize = ctx->negotiatedInfo.clientVerifyDataSize;
+    const uint8_t *serverData = ctx->negotiatedInfo.serverVerifyData;
+    uint32_t serverDataSize = ctx->negotiatedInfo.serverVerifyDataSize;
+    /* Calculate the extension length */
+    uint16_t exMsgHeaderLen = sizeof(uint8_t);
+    /* For renegotiation, the verify data (client data + server data) must be assembled */
+    uint16_t exMsgDataLen = (uint16_t)(isRenegotiation ? (clientDataSize + serverDataSize) : 0);
 
+    uint32_t offset = 0;
+    int32_t ret = PackExtensionHeader(HS_EX_TYPE_RENEGOTIATION_INFO, exMsgHeaderLen + exMsgDataLen, buf, bufLen);
+    if (ret != HITLS_SUCCESS) {
+        return ret;
+    }
+    offset += HS_EX_HEADER_LEN;
+
+    if (!isRenegotiation) {
+        buf[offset++] = 0;
+        *usedLen = offset;
+        return HITLS_SUCCESS;
+    }
+
+    /* Pack the length of secRenegoInfo */
+    buf[offset++] = (uint8_t)(clientDataSize + serverDataSize);
+
+    /* Pack the secRenegoInfo content */
+    (void)memcpy_s(&buf[offset], bufLen - offset, clientData, clientDataSize);
+
+    offset += clientDataSize;
+
+    (void)memcpy_s(&buf[offset], bufLen - offset, serverData, serverDataSize);
+    offset += serverDataSize;
+
+    *usedLen = offset;
+    return HITLS_SUCCESS;
+}
+#endif /* defined(HITLS_TLS_PROTO_TLS_BASIC) || defined(HITLS_TLS_PROTO_DTLS12) */
+#ifdef HITLS_TLS_FEATURE_SNI
+static bool IsNeedServerPackServerName(const TLS_Ctx *ctx)
+{
+    const TLS_Config *config = &(ctx->config.tlsConfig);
+    const TLS_NegotiatedInfo *negoInfo = &ctx->negotiatedInfo;
+
+    /* The protocol version is earlier than tls1.3 and the server accepts the server name. The server hello message sent
+     * by the server contains an empty server name extension */
+    if (negoInfo->isSniStateOK &&
+        (config->maxVersion < HITLS_VERSION_TLS13 || config->maxVersion == HITLS_VERSION_DTLS12)) {
+        return true;
+    }
+    return false;
+}
+#endif /* HITLS_TLS_FEATURE_SNI */
+#ifdef HITLS_TLS_FEATURE_ETM
+static bool IsNeedServerPackEncryptThenMac(const TLS_Ctx *ctx)
+{
+    const TLS_Config *config = &(ctx->config.tlsConfig);
+    const TLS_NegotiatedInfo *negoInfo = &ctx->negotiatedInfo;
+    if (config->isEncryptThenMac && negoInfo->isEncryptThenMac) {
+        return true;
+    }
+    return false;
+}
+#endif /* HITLS_TLS_FEATURE_ETM */
 // Pack the empty extension of Server Hello
 static int32_t PackServerExtensions(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, uint32_t *usedLen)
 {
@@ -1195,26 +1217,74 @@ static int32_t PackServerExtensions(const TLS_Ctx *ctx, uint8_t *buf, uint32_t b
     uint32_t listSize = 0u;
     uint32_t exLen = 0u;
     uint32_t offset = 0u;
+    uint32_t context = 0;
+#ifdef HITLS_TLS_PROTO_TLS13
     uint32_t version = HS_GetVersion(ctx);
     bool isHrrKeyshare = IsHrrKeyShare(ctx);
-    bool isTls13 = Tls13NeedPack(version);
+    bool isTls13 = Tls13NeedPack(ctx, version);
+#endif /* HITLS_TLS_PROTO_TLS13 */
     const TLS_NegotiatedInfo *negoInfo = &ctx->negotiatedInfo;
-
+    (void)negoInfo;
     PackExtInfo extMsgList[] = {
+#ifdef HITLS_TLS_FEATURE_SNI
         { EXTENSION_MSG(HS_EX_TYPE_SERVER_NAME, IsNeedServerPackServerName(ctx), NULL) },
+#endif /* HITLS_TLS_FEATURE_SNI */
+#ifdef HITLS_TLS_PROTO_TLS13
         { EXTENSION_MSG(HS_EX_TYPE_COOKIE, isTls13, PackCookie) },
+#endif /* HITLS_TLS_PROTO_TLS13 */
+#ifdef HITLS_TLS_FEATURE_SESSION_TICKET
         { EXTENSION_MSG(HS_EX_TYPE_SESSION_TICKET, negoInfo->isTicket, NULL) },
+#endif /* HITLS_TLS_FEATURE_SESSION_TICKET */
         { EXTENSION_MSG(HS_EX_TYPE_POINT_FORMATS, IsServerNeedPackEcExtension(ctx), PackPointFormats) },
+#ifdef HITLS_TLS_PROTO_TLS13
         { EXTENSION_MSG(HS_EX_TYPE_SUPPORTED_VERSIONS, isTls13, PackServerSupportedVersion) },
+#endif /* HITLS_TLS_PROTO_TLS13 */
         { EXTENSION_MSG(HS_EX_TYPE_EXTENDED_MASTER_SECRET, negoInfo->isExtendedMasterSecret, NULL) },
-        { EXTENSION_MSG(HS_EX_TYPE_APP_LAYER_PROTOCOLS, (negoInfo->alpnSelected != NULL), PackServerSelectAlpnProto) },
+#ifdef HITLS_TLS_FEATURE_ALPN
+        { .exMsgType = HS_EX_TYPE_APP_LAYER_PROTOCOLS,
+          .needPack = (negoInfo->alpnSelected != NULL
+#ifdef HITLS_TLS_PROTO_TLS13
+            && !isTls13
+#endif
+            ),
+          .packFunc = PackServerSelectAlpnProto },
+#endif /* HITLS_TLS_FEATURE_ALPN */
+#ifdef HITLS_TLS_PROTO_TLS13
         { EXTENSION_MSG(HS_EX_TYPE_KEY_SHARE, (isTls13 && !isHrrKeyshare), PackServerKeyShare) },
         { EXTENSION_MSG(HS_EX_TYPE_KEY_SHARE, (isTls13 && isHrrKeyshare), PackHrrKeyShare) },
+#endif /* HITLS_TLS_PROTO_TLS13 */
+#if defined(HITLS_TLS_PROTO_TLS_BASIC) || defined(HITLS_TLS_PROTO_DTLS12)
         { EXTENSION_MSG(HS_EX_TYPE_RENEGOTIATION_INFO, negoInfo->isSecureRenegotiation, PackServerSecRenegoInfo) },
+#endif /* defined(HITLS_TLS_PROTO_TLS_BASIC) || defined(HITLS_TLS_PROTO_DTLS12) */
+#ifdef HITLS_TLS_FEATURE_ETM
         { EXTENSION_MSG(HS_EX_TYPE_ENCRYPT_THEN_MAC, IsNeedServerPackEncryptThenMac(ctx), NULL) },
+#endif /* HITLS_TLS_FEATURE_ETM */
+#ifdef HITLS_TLS_PROTO_TLS13
         /* The preshare key must be the last extension */
         { EXTENSION_MSG(HS_EX_TYPE_PRE_SHARED_KEY, IsNeedPreSharedKey(ctx), PackServerPreSharedKey) },
+#endif /* HITLS_TLS_PROTO_TLS13 */
     };
+#ifdef HITLS_TLS_PROTO_TLS13
+    if (isTls13) {
+        if (isHrrKeyshare) {
+            context = HITLS_EX_TYPE_HELLO_RETRY_REQUEST;
+        } else {
+            context = HITLS_EX_TYPE_TLS1_3_SERVER_HELLO;
+        }
+    } else
+#endif
+    {
+        context = HITLS_EX_TYPE_TLS1_2_SERVER_HELLO;
+    }
+
+    exLen = 0u;
+    if (IsPackNeedCustomExtensions(CUSTOM_EXT_FROM_CTX(ctx), context)) {
+        ret = PackCustomExtensions(ctx, &buf[offset], bufLen - offset, &exLen, context, NULL, 0);
+        if (ret != HITLS_SUCCESS) {
+            return ret;
+        }
+        offset += exLen;
+    }
 
     /* Calculate the number of extended types */
     listSize = sizeof(extMsgList) / sizeof(extMsgList[0]);
@@ -1263,7 +1333,7 @@ static int32_t PackServerExBody(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLe
 
     /* Pack the nonempty extension of server hello. No nonempty extension of server hello is supported. */
 
-    /* Update the message length */
+    /* Update the packet length */
     *exLen = offset;
     return HITLS_SUCCESS;
 }
@@ -1275,13 +1345,10 @@ int32_t PackServerExtension(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, u
     uint32_t headerLen = 0u;
     uint32_t exLen = 0u;
 
-    /* Obtain the message header length */
+    /* Obtain the packet header length */
     headerLen = sizeof(uint16_t);
     if (bufLen < headerLen) {
-        BSL_ERR_PUSH_ERROR(HITLS_PACK_NOT_ENOUGH_BUF_LENGTH);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15434, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "the buffer length of server hello extension message is not enough.", 0, 0, 0, 0);
-        return HITLS_PACK_NOT_ENOUGH_BUF_LENGTH;
+        return PackBufLenError(BINLOG_ID15434, BINGLOG_STR("server hello extension"));
     }
 
     /* Pack the server hello extension content */
@@ -1290,7 +1357,7 @@ int32_t PackServerExtension(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, u
         return ret;
     }
 
-    /* Update the message length */
+    /* Update the packet length */
     if (exLen > 0u) {
         BSL_Uint16ToByte((uint16_t)exLen, buf);
         *len = exLen + headerLen;
@@ -1300,3 +1367,4 @@ int32_t PackServerExtension(const TLS_Ctx *ctx, uint8_t *buf, uint32_t bufLen, u
 
     return HITLS_SUCCESS;
 }
+#endif /* HITLS_TLS_HOST_SERVER */

@@ -21,6 +21,7 @@
 #include "crypt_eal_pkey.h" // Header file for key exchange.
 #include "bsl_sal.h"
 #include "bsl_err.h"
+#include "crypt_eal_init.h"
 #include "crypt_algid.h"
 #include "crypt_errno.h"
 #include "crypt_eal_rand.h"
@@ -35,8 +36,6 @@ void PrintLastError(void) {
     BSL_ERR_GetLastErrorFileLine(&file, &line);
     printf("failed at file %s at line %d\n", file, line);
 }
-
-BSL_SAL_MemCallback cb = {StdMalloc, free};
 
 int main(void)
 {
@@ -65,16 +64,22 @@ int main(void)
     BSL_ERR_Init(); // Initialize the error code module.
     /**
      * Before calling the algorithm APIs,
-     * call the BSL_SAL_RegMemCallback function to register the malloc and free functions.
+     * call the BSL_SAL_CallBack_Ctrl function to register the malloc and free functions.
      * Execute this step only once. If the memory allocation ability of Linux is available,
      * the two functions can be registered using Linux by default.
     */
-    BSL_SAL_RegMemCallback(&cb);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_MALLOC, StdMalloc);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_FREE, free);
+    ret = CRYPT_EAL_Init(CRYPT_EAL_INIT_CPU | CRYPT_EAL_INIT_PROVIDER);
+    if (ret != CRYPT_SUCCESS) {
+        printf("CRYPT_EAL_Init: error code is %x\n", ret);
+        goto EXIT;
+    }
 
     prvCtx = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_ECDH);
     pubCtx = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_ECDH);
     if (prvCtx == NULL || pubCtx == NULL) {
-        goto exit;
+        goto EXIT;
     }
 
     // Set the curve parameters.
@@ -82,7 +87,7 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Set the private key of one end.
@@ -93,7 +98,7 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Set the curve parameters.
@@ -101,7 +106,7 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Set the public key of the other end.
@@ -112,7 +117,7 @@ int main(void)
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // The shared key involves only the X axis. The length of the public key is not compressed in the returned results.
@@ -121,35 +126,34 @@ int main(void)
     if (shareKey == NULL) {
         ret = CRYPT_MEM_ALLOC_FAIL;
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
-
     // Initialize the random number.
-    ret = CRYPT_EAL_RandInit(CRYPT_RAND_SHA256, NULL, NULL, NULL, 0);
+    ret = CRYPT_EAL_ProviderRandInitCtx(NULL, CRYPT_RAND_SHA256, "provider=default", NULL, 0, NULL);
     if (ret != CRYPT_SUCCESS) {
-        printf("CRYPT_EAL_RandInit: error code is %x\n", ret);
+        printf("RandInit: error code is %x\n", ret);
         PrintLastError();
-        goto exit;
-    }
+        goto EXIT;
+    }   
 
     // Calculate the shared key.
     ret = CRYPT_EAL_PkeyComputeShareKey(prvCtx, pubCtx, shareKey, &shareLen);
     if (ret != CRYPT_SUCCESS) {
         printf("error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Compare the calculation result with the expected one.
     if (shareLen != sizeof(resSharekey) || memcmp(shareKey, resSharekey, shareLen) != 0) {
         printf("failed to compare test results\n");
         ret = -1;
-        goto exit;
+        goto EXIT;
     }
 
     printf("pass \n");
 
-exit:
+EXIT:
     // Release the context memory.
     CRYPT_EAL_RandDeinit();
     CRYPT_EAL_PkeyFreeCtx(prvCtx);

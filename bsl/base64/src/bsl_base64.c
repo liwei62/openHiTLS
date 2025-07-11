@@ -223,9 +223,9 @@ static void BslBase64DecodeRemoveBlank(const uint8_t *buf, const uint32_t bufLen
     *destLen = slow;
 }
 
-static uint32_t BslBase64DecodeCheckAndRmvEqualSign(uint8_t *buf, uint32_t *bufLen)
+static int32_t BslBase64DecodeCheckAndRmvEqualSign(uint8_t *buf, uint32_t *bufLen)
 {
-    uint32_t ret = BSL_SUCCESS;
+    int32_t ret = BSL_SUCCESS;
     uint32_t i = 0;
     bool hasEqualSign = false;
     uint32_t len = *bufLen;
@@ -360,7 +360,6 @@ int32_t BSL_BASE64_Decode(const char *srcBuf, const uint32_t srcBufLen, uint8_t 
     ret = BslBase64ArithDecodeProc(srcBuf, srcBufLen, dstBuf, dstBufLen);  /* start decoding */
     if (ret != BSL_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        return ret;
     }
 
     return ret;
@@ -557,16 +556,6 @@ int32_t BSL_BASE64_SetFlags(BSL_Base64Ctx *ctx, uint32_t flags)
         return BSL_NULL_INPUT;
     }
     ctx->flags |= flags;
-    return BSL_SUCCESS;
-}
-
-int32_t BSL_Base64GetNum(BSL_Base64Ctx *ctx, uint32_t *num)
-{
-    if (ctx == NULL) {
-        BSL_ERR_PUSH_ERROR(BSL_NULL_INPUT);
-        return BSL_NULL_INPUT;
-    }
-    *num = ctx->num;
     return BSL_SUCCESS;
 }
 #endif /* HITLS_BSL_BASE64 */

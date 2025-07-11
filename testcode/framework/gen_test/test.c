@@ -87,15 +87,14 @@ int ConvertHex(const char *str, Hex *output)
     // Every 2 bytes in a group
     for (uint32_t i = 0; i < 2 * len; i += 2) {
         if ((IsValidHexChar(str[i]) == 1) || (IsValidHexChar(str[i + 1]) == 1)) {
-            goto hex_error;
+            goto ERR;
         }
         // hex to int formulas: (Hex % 32 + 9) % 25 = int, hex
         output->x[i / 2] = (str[i] % 32 + 9) % 25 * 16 + (str[i + 1] % 32 + 9) % 25;
     }
-
     return 0;
 
-hex_error:
+ERR:
     free(output->x);
     output->len = 0;
     return 1;
@@ -119,11 +118,11 @@ void SkipTest(const char *filename)
         Print("failure log failed: filename too long\n");
     }
 }
-void PrintResult(bool showDetail, char *vectorName)
+void PrintResult(bool showDetail, char *vectorName, uint64_t useTime)
 {
     if (showDetail) {
         if (g_testResult.result == TEST_RESULT_SUCCEED) {
-            Print("pass\n");
+            Print("pass. use ms: %ld\n", useTime);
         } else if (g_testResult.result == TEST_RESULT_SKIPPED) {
             Print("skip\n");
         } else {
@@ -166,11 +165,11 @@ void PrintDiff(const uint8_t *str1, uint32_t size1, const uint8_t *str2, uint32_
     Print("\nCompare different:\nstr1: ");
     uint32_t i;
     for (i = 0; i < size1; i++) {
-        Print("%X ", str1[i]);
+        Print("%02X ", str1[i]);
     }
     Print("\nstr2: ");
     for (i = 0; i < size2; i++) {
-        Print("%X ", str2[i]);
+        Print("%02X ", str2[i]);
     }
     Print("\n");
 }

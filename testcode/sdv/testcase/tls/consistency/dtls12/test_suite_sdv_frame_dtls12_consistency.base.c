@@ -76,46 +76,47 @@ typedef struct {
     bool isSupportNoClientCert;
 } HandshakeTestInfo;
 
-int32_t StatusPark(HandshakeTestInfo *testInfo)
+int32_t StatusPark(HandshakeTestInfo *testInfo, int uioType)
 {
-
-    testInfo->client = FRAME_CreateLink(testInfo->config, BSL_UIO_SCTP);
+    int ret;
+    testInfo->client = FRAME_CreateLink(testInfo->config, uioType);
     if (testInfo->client == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
 
-    testInfo->server = FRAME_CreateLink(testInfo->config, BSL_UIO_SCTP);
+    testInfo->server = FRAME_CreateLink(testInfo->config, uioType);
     if (testInfo->server == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
 
-
-    if (FRAME_CreateConnection(testInfo->client, testInfo->server,
-                               testInfo->isClient, testInfo->state) != HITLS_SUCCESS) {
-        return HITLS_INTERNAL_EXCEPTION;
+    ret = FRAME_CreateConnection(testInfo->client, testInfo->server,
+        testInfo->isClient, testInfo->state);
+    if (ret != HITLS_SUCCESS) {
+        return ret;
     }
 
     return HITLS_SUCCESS;
 }
 
-int32_t DefaultCfgStatusPark(HandshakeTestInfo *testInfo)
+int32_t DefaultCfgStatusPark(HandshakeTestInfo *testInfo, int uioType)
 {
     FRAME_Init();
-    FRAME_RegCryptMethod(); // stub all crypto functions
+    // FRAME_RegCryptMethod(); // stub all crypto functions
 
     testInfo->config = HITLS_CFG_NewDTLS12Config();
     if (testInfo->config == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetDtlsCookieExchangeSupport(testInfo->config, false);
     testInfo->config->isSupportExtendMasterSecret = testInfo->isSupportExtendMasterSecret;
     testInfo->config->isSupportClientVerify = testInfo->isSupportClientVerify;
     testInfo->config->isSupportNoClientCert = testInfo->isSupportNoClientCert;
 
-    return StatusPark(testInfo);
+    return StatusPark(testInfo, uioType);
 }
 
-int32_t DefaultCfgStatusParkWithSuite(HandshakeTestInfo *testInfo)
+int32_t DefaultCfgStatusParkWithSuite(HandshakeTestInfo *testInfo, int uioType)
 {
     FRAME_Init();
 
@@ -124,7 +125,7 @@ int32_t DefaultCfgStatusParkWithSuite(HandshakeTestInfo *testInfo)
     if (testInfo->config == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
     uint16_t cipherSuits[] = {HITLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384};
     HITLS_CFG_SetCipherSuites(testInfo->config, cipherSuits, sizeof(cipherSuits) / sizeof(uint16_t));
 
@@ -132,20 +133,17 @@ int32_t DefaultCfgStatusParkWithSuite(HandshakeTestInfo *testInfo)
     testInfo->config->isSupportClientVerify = testInfo->isSupportClientVerify;
     testInfo->config->isSupportNoClientCert = testInfo->isSupportNoClientCert;
 
-    return StatusPark(testInfo);
+    return StatusPark(testInfo, uioType);
 }
 
 int32_t SendHelloReqWithIndex(HITLS_Ctx *ctx, uint8_t index)
 {
-    int32_t ret;
-
     uint8_t buf[DTLS_HS_MSG_HEADER_SIZE] = {0u};
     buf[5] = index;
     size_t len = DTLS_HS_MSG_HEADER_SIZE;
 
 
-    ret = REC_Write(ctx, REC_TYPE_HANDSHAKE, buf, len);
-    return ret;
+    return REC_Write(ctx, REC_TYPE_HANDSHAKE, buf, len);
 }
 
 int32_t ConstructAnEmptyCertMsg(FRAME_LinkObj *link)
@@ -258,7 +256,8 @@ static int32_t AppWrite(HITLS_Ctx *ctx)
     uint8_t writeBuf[] = "GET HTTP 1.0";
     uint32_t len = strlen((char *)writeBuf);
     do {
-        ret = HITLS_Write(ctx, writeBuf, len);
+        uint32_t writeLen;
+        ret = HITLS_Write(ctx, writeBuf, len, &writeLen);
     } while (ret == HITLS_REC_NORMAL_RECV_BUF_EMPTY || ret == HITLS_REC_NORMAL_IO_BUSY);
     return ret;
 }
@@ -343,14 +342,14 @@ static int32_t GetDisorderServerFinish_AppData(FRAME_LinkObj *server, uint8_t *d
     return HITLS_SUCCESS;
 }
 
-int32_t DefaultCfgStatusPark1(HandshakeTestInfo *testInfo)
+int32_t DefaultCfgStatusPark1(HandshakeTestInfo *testInfo, int uioType)
 {
     FRAME_Init();
     testInfo->config = HITLS_CFG_NewDTLS12Config();
     if (testInfo->config == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
     uint16_t groups[] = {HITLS_EC_GROUP_SECP256R1};
     HITLS_CFG_SetGroups(testInfo->config, groups, sizeof(groups) / sizeof(uint16_t));
     uint16_t signAlgs[] = {CERT_SIG_SCHEME_RSA_PKCS1_SHA256, CERT_SIG_SCHEME_ECDSA_SECP256R1_SHA256};
@@ -358,7 +357,7 @@ int32_t DefaultCfgStatusPark1(HandshakeTestInfo *testInfo)
     HITLS_CFG_SetClientVerifySupport(testInfo->config, testInfo->isSupportClientVerify);
     HITLS_CFG_SetNoClientCertSupport(testInfo->config, false);
     HITLS_CFG_SetExtenedMasterSecretSupport(testInfo->config, true);
-    return StatusPark(testInfo);
+    return StatusPark(testInfo, uioType);
 }
 
 static int32_t GetRepeatsApp(FRAME_LinkObj *obj, uint8_t *data, uint32_t *usedLen)

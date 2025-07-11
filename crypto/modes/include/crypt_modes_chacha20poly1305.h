@@ -17,11 +17,10 @@
 #define CRYPT_MODES_CHACHA20POLY1305_H
 
 #include "hitls_build.h"
-#ifdef HITLS_CRYPTO_CHACHA20POLY1305
+#if defined(HITLS_CRYPTO_CHACHA20) && defined(HITLS_CRYPTO_CHACHA20POLY1305)
 
-#include <stdint.h>
-#include "crypt_local_types.h"
 #include "crypt_types.h"
+#include "crypt_modes.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,30 +35,30 @@ typedef struct {
     uint32_t lastLen;   // Indicates the remaining length of the last data.
     uint32_t flag;      // Used to save the assembly status information.
 } Poly1305Ctx;
-
 typedef struct {
     void *key; // Handle for the method.
-    const EAL_CipherMethod *method; // algorithm method
+    const EAL_SymMethod *method; // algorithm method
     Poly1305Ctx polyCtx;
     uint64_t aadLen; // Status, indicating whether identification data is set.
     uint64_t cipherTextLen; // status, indicating whether the identification data is set.
-} MODES_CHACHA20POLY1305_Ctx;
+} MODES_CipherChaChaPolyCtx;
+struct ModesChaChaCtx {
+    int32_t algId;
+    MODES_CipherChaChaPolyCtx chachaCtx;
+    bool enc;
+};
+typedef struct ModesChaChaCtx MODES_CHACHAPOLY_Ctx;
 
-int32_t MODES_CHACHA20POLY1305_InitCtx(MODES_CHACHA20POLY1305_Ctx *ctx, const struct EAL_CipherMethod *m);
+MODES_CHACHAPOLY_Ctx *MODES_CHACHA20POLY1305_NewCtx(int32_t algId);
+int32_t MODES_CHACHA20POLY1305_InitCtx(MODES_CHACHAPOLY_Ctx *modeCtx, const uint8_t *key,
+    uint32_t keyLen, const uint8_t *iv, uint32_t ivLen, void *param, bool enc);
 
-void MODES_CHACHA20POLY1305_DeinitCtx(MODES_CHACHA20POLY1305_Ctx *ctx);
-
-void MODES_CHACHA20POLY1305_Clean(MODES_CHACHA20POLY1305_Ctx *ctx);
-
-int32_t MODES_CHACHA20POLY1305_Ctrl(MODES_CHACHA20POLY1305_Ctx *ctx, CRYPT_CipherCtrl opt, void *val, uint32_t len);
-
-int32_t MODES_CHACHA20POLY1305_SetEncryptKey(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *key, uint32_t len);
-
-int32_t MODES_CHACHA20POLY1305_SetDecryptKey(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *key, uint32_t len);
-
-int32_t MODES_CHACHA20POLY1305_Encrypt(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *in, uint8_t *out, uint32_t len);
-
-int32_t MODES_CHACHA20POLY1305_Decrypt(MODES_CHACHA20POLY1305_Ctx *ctx, const uint8_t *in, uint8_t *out, uint32_t len);
+int32_t MODES_CHACHA20POLY1305_Update(MODES_CHACHAPOLY_Ctx *modeCtx, const uint8_t *in, uint32_t inLen,
+    uint8_t *out, uint32_t *outLen);
+int32_t MODES_CHACHA20POLY1305_Final(MODES_CHACHAPOLY_Ctx *modeCtx, uint8_t *out, uint32_t *outLen);
+int32_t MODES_CHACHA20POLY1305_DeInitCtx(MODES_CHACHAPOLY_Ctx *modeCtx);
+int32_t MODES_CHACHA20POLY1305_Ctrl(MODES_CHACHAPOLY_Ctx *modeCtx, int32_t cmd, void *val, uint32_t len);
+void MODES_CHACHA20POLY1305_FreeCtx(MODES_CHACHAPOLY_Ctx *modeCtx);
 
 #ifdef __cplusplus
 }

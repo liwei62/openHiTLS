@@ -26,6 +26,7 @@
             "-Wstrict-prototypes",
             "-Wdate-time",
             "-Wfloat-equal",
+            "-Wcast-qual",
             "-Wswitch-default",
             "-Wshadow",
             "-Wstack-usage=8192",
@@ -168,7 +169,29 @@
         "CC_DEFINE_FLAGS": [
             "-DHITLS_SIXTY_FOUR_BITS",
             "-DHITLS_THIRTY_TWO_BITS",
-            "-DHITLS_BSL_SAL_LINUX"
+            "-DHITLS_BSL_SAL_LINUX",
+            "-DHITLS_CRYPTO_NIST_ECC_ACCELERATE",
+            "-DHITLS_CRYPTO_SHA1_SMALL_MEM",
+            "-DHITLS_CRYPTO_SHA256_SMALL_MEM",
+            "-DHITLS_CRYPTO_SHA512_SMALL_MEM",
+            "-DHITLS_CRYPTO_ENTROPY_DEVRANDOM",
+            "-DHITLS_CRYPTO_ENTROPY_GETENTROPY",
+            "-DHITLS_CRYPTO_ENTROPY_SYS",
+            "-DHITLS_CRYPTO_ENTROPY_HARDWARE",
+            "-DHITLS_CRYPTO_ASM_CHECK",
+            "-DHITLS_CRYPTO_BN_COMBA",
+            "-DHITLS_CRYPTO_BN_SMALL_MEM",
+            "-DHITLS_CRYPTO_AES_PRECALC_TABLES",
+            "-DHITLS_CRYPTO_BN_RAND",
+            "-DHITLS_CRYPTO_BN_PRIME",
+            "-DHITLS_CRYPTO_DRBG_GM",
+            "-DHITLS_CRYPTO_RAND_CB",
+            "-DHITLS_CRYPTO_BN_CB",
+            "-DHITLS_CRYPTO_RSA_BSSA",
+            "-DHITLS_AARCH64_PACIASP",
+            "-DHITLS_CRYPTO_SM2_PRECOMPUTE_512K_TBL",
+            "-DHITLS_CRYPTO_ACVP_TESTS",
+            "-DHITLS_CRYPTO_DSA_GEN_PARA"
         ],
         "CC_DEBUG_FLAGS": [
             "-g",
@@ -176,8 +199,9 @@
             "-gdwarf-2"
         ],
         "CC_USER_DEFINE_FLAGS": [
+            "-DHITLS_EAL_INIT_OPTS=n",
             "-DHITLS_CRYPTO_DRBG_GM_LEVEL=n",
-            "-DHITLS_EAL_INIT_OPTS=n"
+            "-DHITLS_SEED_DRBG_INIT_RAND_ALG=n"
         ]
     },
     "linkFlag": {
@@ -187,8 +211,7 @@
             "-Wl,-z,relro,-z,now",
             "-Wl,-z,noexecstack",
             "-s",
-            "-rdynamic",
-            "-Wl,--build-id=none"
+            "-rdynamic"
         ],
         "SHARED": [
             "-shared"

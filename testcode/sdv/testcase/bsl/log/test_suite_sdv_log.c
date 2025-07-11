@@ -175,11 +175,11 @@ void SDV_BSL_LOG_VERSION_API_TC001(void)
 
     versionLen = 200;
     ASSERT_TRUE(BSL_LOG_GetVersion((char *)version, &versionLen) == BSL_SUCCESS);
-    ASSERT_TRUE(versionLen == strlen("openHiTLS 0.1.0 25 12 2023"));
-    ASSERT_TRUE(memcmp(version, "openHiTLS 0.1.0 25 12 2023", versionLen) == 0);
-    uint32_t versionNum = BSL_LOG_GetVersionNum();
-    ASSERT_TRUE(versionNum == 0x00001000U);
-exit:
+    ASSERT_TRUE(versionLen == strlen("openHiTLS 0.2.0 15 May 2025"));
+    ASSERT_TRUE(memcmp(version, "openHiTLS 0.2.0 15 May 2025", versionLen) == 0);
+    uint64_t versionNum = BSL_LOG_GetVersionNum();
+    ASSERT_EQ(versionNum, 0x00200000ULL);
+EXIT:
     return;
 }
 /* END_CASE */
@@ -235,7 +235,7 @@ void SDV_BSL_REG_BIN_LOG_FUNC_TC001(void)
     func.varLenFunc = BinLogVarLenFunc;
     ASSERT_TRUE(BSL_LOG_RegBinLogFunc(&func) == BSL_SUCCESS);
     ASSERT_TRUE(BSL_LOG_RegBinLogFunc(&func) == BSL_SUCCESS);
-exit:
+EXIT:
     return;
 }
 /* END_CASE */
@@ -338,7 +338,7 @@ void SDV_BSL_BIN_LOG_API_TC001(void)
     ASSERT_TRUE(g_binlogFlag == 0);
     BSL_LOG_BINLOG_VARLEN(BINLOG_ID05001, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN, "this is test %s", s);
     ASSERT_TRUE(g_binlogFlag == (uintptr_t)s);
-exit:
+EXIT:
     return;
 }
 /* END_CASE */
@@ -387,7 +387,7 @@ void SDV_BSL_SET_BIN_LOG_LEVEL_API_TC001(void)
     ASSERT_TRUE(BSL_LOG_SetBinLogLevel(BSL_LOG_LEVEL_INFO) == BSL_SUCCESS);
     ASSERT_TRUE(BSL_LOG_SetBinLogLevel(BSL_LOG_LEVEL_DEBUG) == BSL_SUCCESS);
     ASSERT_TRUE(BSL_LOG_SetBinLogLevel(BSL_LOG_LEVEL_DEBUG + 1) == BSL_LOG_ERR_BAD_PARAM);
-exit:
+EXIT:
     return;
 }
 /* END_CASE */
@@ -437,7 +437,7 @@ void SDV_BSL_BIN_LOG_FUNC_TC001(void)
     BSL_LOG_BINLOG_VARLEN(BINLOG_ID05003, BSL_LOG_LEVEL_FATAL, BSL_LOG_BINLOG_TYPE_RUN,
         "this is test msg: %s", "hello world");
 
-exit:
+EXIT:
     fclose(g_LogOutput); // flush and close
 }
 /* END_CASE */

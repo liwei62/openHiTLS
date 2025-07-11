@@ -12,16 +12,17 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-
+#include "hitls_build.h"
+#if defined(HITLS_TLS_CALLBACK_CERT) || defined(HITLS_TLS_FEATURE_PROVIDER)
 #include <stdint.h>
 #include "bsl_err_internal.h"
 #include "crypt_errno.h"
 #include "hitls_cert_type.h"
 #include "hitls_type.h"
+#include "hitls_pki_x509.h"
 #include "hitls_cert_local.h"
-#include "hitls_x509.h"
 #include "hitls_error.h"
-#include "hitls_x509_adapt_local.h"
+#include "hitls_x509_adapt.h"
 
 HITLS_CERT_Store *HITLS_X509_Adapt_StoreNew(void)
 {
@@ -51,24 +52,14 @@ int32_t HITLS_X509_Adapt_StoreCtrl(HITLS_Config *config, HITLS_CERT_Store *store
 {
     (void)config;
     (void)output;
-    int32_t inputLen = 0;
-    int32_t x509Cmd;
     switch (cmd) {
         case CERT_STORE_CTRL_SET_VERIFY_DEPTH:
-            x509Cmd = HITLS_X509_STORECTX_SET_PARAM_DEPTH;
-            inputLen = sizeof(int32_t);
-            break;
-        case CERT_STORE_CTRL_DEEP_COPY_ADD_CERT_LIST:
-            x509Cmd = HITLS_X509_STORECTX_DEEP_COPY_SET_CA;
-            inputLen = sizeof(HITLS_X509_Cert);
-            break;
-        case CERT_STORE_CTRL_SHALLOW_COPY_ADD_CERT_LIST:
-            x509Cmd = HITLS_X509_STORECTX_SHALLOW_COPY_SET_CA;
-            inputLen = sizeof(HITLS_X509_Cert);
-            break;
+            return HITLS_X509_StoreCtxCtrl(store, HITLS_X509_STORECTX_SET_PARAM_DEPTH, input, sizeof(int32_t));
+        case CERT_STORE_CTRL_ADD_CERT_LIST:
+            return HITLS_X509_StoreCtxCtrl(store, HITLS_X509_STORECTX_SHALLOW_COPY_SET_CA, input,
+                sizeof(HITLS_X509_Cert));
         default:
-            return HITLS_X509_ADAPT_ERR;
+            return HITLS_CERT_SELF_ADAPT_ERR;
     }
-
-    return HITLS_X509_StoreCtxCtrl(store, x509Cmd, input, inputLen);
 }
+#endif /* defined(HITLS_TLS_CALLBACK_CERT) || defined(HITLS_TLS_FEATURE_PROVIDER) */

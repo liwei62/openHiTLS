@@ -41,9 +41,10 @@ typedef struct {
     uint8_t v[DRBG_HMAC_MAX_MDLEN];
     uint32_t blockLen;
     const EAL_MacMethod *hmacMeth;
-    const EAL_MdMethod *mdMeth;
+    CRYPT_MAC_AlgId macId;
     void *hmacCtx;
 } DRBG_HmacCtx;
+
 
 static int32_t Hmac(DRBG_HmacCtx *ctx, uint8_t mark, const CRYPT_Data *provData[], int32_t provDataLen)
 {
@@ -52,42 +53,41 @@ static int32_t Hmac(DRBG_HmacCtx *ctx, uint8_t mark, const CRYPT_Data *provData[
     uint32_t ctxVLen = sizeof(ctx->v);
     // K = HMAC (K, V || mark || provided_data). mark can be 0x00 or 0x01,
     // provided_data = in1 || in2 || in3, private_data can be NULL
-    if ((ret = ctx->hmacMeth->init(ctx->hmacCtx, ctx->k, ctx->blockLen)) != CRYPT_SUCCESS) {
+    if ((ret = ctx->hmacMeth->init(ctx->hmacCtx, ctx->k, ctx->blockLen, NULL)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto ERR;
+        goto EXIT;
     }
     if ((ret = ctx->hmacMeth->update(ctx->hmacCtx, ctx->v, ctx->blockLen)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto ERR;
+        goto EXIT;
     }
     if ((ret = ctx->hmacMeth->update(ctx->hmacCtx, &mark, 1)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto ERR;
+        goto EXIT;
     }
     for (int32_t i = 0; i < provDataLen; i++) {
         if ((ret = ctx->hmacMeth->update(ctx->hmacCtx, provData[i]->data, provData[i]->len)) != CRYPT_SUCCESS) {
             BSL_ERR_PUSH_ERROR(ret);
-            goto ERR;
+            goto EXIT;
         }
     }
     if ((ret = ctx->hmacMeth->final(ctx->hmacCtx, ctx->k, &ctxKLen)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto ERR;
+        goto EXIT;
     }
     // V = HMAC (K, V).
-    if ((ret = ctx->hmacMeth->init(ctx->hmacCtx, ctx->k, ctx->blockLen)) != CRYPT_SUCCESS) {
+    if ((ret = ctx->hmacMeth->init(ctx->hmacCtx, ctx->k, ctx->blockLen, NULL)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto ERR;
+        goto EXIT;
     }
     if ((ret = ctx->hmacMeth->update(ctx->hmacCtx, ctx->v, ctx->blockLen)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto ERR;
+        goto EXIT;
     }
     if ((ret = ctx->hmacMeth->final(ctx->hmacCtx, ctx->v, &ctxVLen)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto ERR;
     }
-ERR :
+EXIT:
     // clear hmacCtx
     ctx->hmacMeth->deinit(ctx->hmacCtx);
     return ret;
@@ -115,7 +115,6 @@ static int32_t DRBG_HmacUpdate(DRBG_Ctx *drbg, const CRYPT_Data *provData[], int
     ret = Hmac(ctx, 0x01, provData, provDataLen);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        return ret;
     }
     return ret;
 }
@@ -152,7 +151,6 @@ int32_t DRBG_HmacInstantiate(DRBG_Ctx *drbg, const CRYPT_Data *entropyInput, con
     ret = DRBG_HmacUpdate(drbg, provData, index);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        return ret;
     }
 
     return ret;
@@ -178,7 +176,6 @@ int32_t DRBG_HmacReseed(DRBG_Ctx *drbg, const CRYPT_Data *entropyInput, const CR
     ret = DRBG_HmacUpdate(drbg, seedMaterial, index);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        return ret;
     }
 
     return ret;
@@ -213,17 +210,17 @@ int32_t DRBG_HmacGenerate(DRBG_Ctx *drbg, uint8_t *out, uint32_t outLen, const C
         temp = temp || V.
     */
     while (len > 0) {
-        if ((ret = hmacMeth->init(ctx->hmacCtx, ctx->k, ctx->blockLen)) != CRYPT_SUCCESS ||
+        if ((ret = hmacMeth->init(ctx->hmacCtx, ctx->k, ctx->blockLen, NULL)) != CRYPT_SUCCESS ||
             (ret = hmacMeth->update(ctx->hmacCtx, temp, ctx->blockLen)) != CRYPT_SUCCESS) {
             BSL_ERR_PUSH_ERROR(ret);
-            goto ERR;
+            goto EXIT;
         }
         if (len <= ctx->blockLen) {
             break;
         }
         if ((ret = hmacMeth->final(ctx->hmacCtx, buf, &tmpLen)) != CRYPT_SUCCESS) {
             BSL_ERR_PUSH_ERROR(ret);
-            goto ERR;
+            goto EXIT;
         }
         temp = buf;
         buf += ctx->blockLen;
@@ -233,7 +230,7 @@ int32_t DRBG_HmacGenerate(DRBG_Ctx *drbg, uint8_t *out, uint32_t outLen, const C
     ctxVLen = sizeof(ctx->v);
     if ((ret = hmacMeth->final(ctx->hmacCtx, ctx->v, &ctxVLen)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto ERR;
+        goto EXIT;
     }
     // Intercepts the len-length V-value as an output, and because of len <= blockLen,
     // length of V is always greater than blockLen，Therefore, this problem does not exist.
@@ -242,9 +239,8 @@ int32_t DRBG_HmacGenerate(DRBG_Ctx *drbg, uint8_t *out, uint32_t outLen, const C
     //  (Key, V) = HMAC_DRBG_Update (additional_input, Key, V).
     if ((ret = DRBG_HmacUpdate(drbg, &adin, hasAdin)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        goto ERR;
     }
-ERR:
+EXIT:
     // clear hmacCtx
     hmacMeth->deinit(ctx->hmacCtx);
     return ret;
@@ -268,7 +264,7 @@ DRBG_Ctx *DRBG_HmacDup(DRBG_Ctx *drbg)
 
     ctx = (DRBG_HmacCtx*)drbg->ctx;
 
-    return DRBG_NewHmacCtx(ctx->hmacMeth, ctx->mdMeth, &(drbg->seedMeth), drbg->seedCtx);
+    return DRBG_NewHmacCtx(ctx->hmacMeth, ctx->macId, &(drbg->seedMeth), drbg->seedCtx);
 }
 
 void DRBG_HmacFree(DRBG_Ctx *drbg)
@@ -279,7 +275,7 @@ void DRBG_HmacFree(DRBG_Ctx *drbg)
 
     DRBG_HmacUnInstantiate(drbg);
     DRBG_HmacCtx *ctx = (DRBG_HmacCtx*)drbg->ctx;
-    ctx->hmacMeth->deinitCtx(ctx->hmacCtx);
+    ctx->hmacMeth->freeCtx(ctx->hmacCtx);
     BSL_SAL_FREE(drbg);
     return;
 }
@@ -304,7 +300,7 @@ static int32_t DRBG_NewHmacCtxBase(uint32_t hmacSize, DRBG_Ctx *drbg)
     }
 }
 
-DRBG_Ctx *DRBG_NewHmacCtx(const EAL_MacMethod *hmacMeth, const EAL_MdMethod *mdMeth,
+DRBG_Ctx *DRBG_NewHmacCtx(const EAL_MacMethod *hmacMeth, CRYPT_MAC_AlgId macId,
     const CRYPT_RandSeedMethod *seedMeth, void *seedCtx)
 {
     DRBG_Ctx *drbg = NULL;
@@ -318,28 +314,37 @@ DRBG_Ctx *DRBG_NewHmacCtx(const EAL_MacMethod *hmacMeth, const EAL_MdMethod *mdM
         DRBG_HmacFree
     };
 
-    if (hmacMeth == NULL || mdMeth == NULL || seedMeth == NULL) {
+    if (hmacMeth == NULL || seedMeth == NULL) {
         return NULL;
     }
 
-    drbg = (DRBG_Ctx*)BSL_SAL_Malloc(sizeof(DRBG_Ctx) + sizeof(DRBG_HmacCtx) + hmacMeth->ctxSize);
+    drbg = (DRBG_Ctx*)BSL_SAL_Malloc(sizeof(DRBG_Ctx) + sizeof(DRBG_HmacCtx));
     if (drbg == NULL) {
         return NULL;
     }
 
     ctx = (DRBG_HmacCtx*)(drbg + 1);
     ctx->hmacMeth = hmacMeth;
-    ctx->mdMeth = mdMeth;
-    ctx->hmacCtx = (void*)(ctx + 1);
-
-    if (hmacMeth->initCtx(ctx->hmacCtx, mdMeth) != CRYPT_SUCCESS) {
+    ctx->macId = macId;
+    void *macCtx = hmacMeth->newCtx(ctx->macId);
+    if (macCtx == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
         BSL_SAL_FREE(drbg);
         return NULL;
     }
+    ctx->hmacCtx = macCtx;
 
-    ctx->blockLen = hmacMeth->getLen(ctx->hmacCtx);
+    uint32_t tempLen = 0;
+    int32_t ret = hmacMeth->ctrl(ctx->hmacCtx, CRYPT_CTRL_GET_MACLEN, &tempLen, sizeof(uint32_t));
+    if (ret != CRYPT_SUCCESS) {
+        hmacMeth->freeCtx(ctx->hmacCtx);
+        BSL_SAL_FREE(drbg);
+        return NULL;
+    }
+    ctx->blockLen = tempLen;
 
     if (DRBG_NewHmacCtxBase(ctx->blockLen, drbg) != CRYPT_SUCCESS) {
+        hmacMeth->freeCtx(ctx->hmacCtx);
         BSL_SAL_FREE(drbg);
         return NULL;
     }

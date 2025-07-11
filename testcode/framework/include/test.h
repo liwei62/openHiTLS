@@ -24,6 +24,7 @@
 #include <signal.h>
 #include <setjmp.h>
 #include <sys/wait.h>
+#include <time.h>
 
 #include "helper.h"
 #include "crypto_test_util.h"
@@ -45,7 +46,7 @@ typedef struct {
 #define TRUE_OR_EXIT(TEST)                  \
     do {                                    \
         if (!(TEST)) {                      \
-            goto exit;                      \
+            goto EXIT;                      \
         }                                   \
     } while (0)
 
@@ -59,7 +60,7 @@ typedef struct {
 #define PRINT_ABRT(TEST)                    \
     do {                                    \
         if (!(TEST)) {                      \
-            goto abrt;                      \
+            goto ABORT;                      \
         }                                   \
     } while (0)
 
@@ -67,7 +68,7 @@ typedef struct {
     do {                                    \
         if (!(TEST)) {                      \
             RecordFailure(#TEST, __FILE__); \
-            goto exit;                      \
+            goto EXIT;                      \
         }                                   \
     } while (0)
 
@@ -78,7 +79,7 @@ typedef struct {
         if (value1__ != value2__) {                     \
             RecordFailure(#VALUE1 #VALUE2, __FILE__);   \
             Print("\nvalue is %d (0x%x).\nexpect %d (0x%x).\n", value1__, value1__, value2__, value2__); \
-            goto exit;                                  \
+            goto EXIT;                                  \
         }                                               \
     } while (0)
 
@@ -90,7 +91,7 @@ typedef struct {
         if (value1__ != value2__) {                     \
             RecordFailure(LOG, __FILE__);   \
             Print("\nvalue is %d (0x%x).\nexpect %d (0x%x).\n", value1__, value1__, value2__, value2__); \
-            goto exit;                                  \
+            goto EXIT;                                  \
         }                                               \
     } while (0)
 
@@ -101,7 +102,7 @@ typedef struct {
         if (value1__ == value2__) {                     \
             RecordFailure(#VALUE1#VALUE2, __FILE__);    \
             Print("\nvalue is the same: %d (0x%x).\n", value1__, value2__); \
-            goto exit;                                  \
+            goto EXIT;                                  \
         }                                               \
     } while (0)
 
@@ -109,7 +110,7 @@ typedef struct {
     do {                                  \
         if (!(TEST)) {                    \
             RecordFailure(LOG, __FILE__); \
-            goto exit;                    \
+            goto EXIT;                    \
         }                                 \
     } while (0)
 
@@ -119,7 +120,7 @@ typedef struct {
         if (memcmp((STR1), (STR2), (SIZE1)) != 0) {                                                \
             RecordFailure((LOG), __FILE__);                                                        \
             PrintDiff((uint8_t *)(STR1), (uint32_t)(SIZE1), (uint8_t *)(STR2), (uint32_t)(SIZE2)); \
-            goto exit;                                                                             \
+            goto EXIT;                                                                             \
         }                                                                                          \
     } while (0)
 
@@ -129,11 +130,18 @@ typedef struct {
         return;             \
     } while (0)
 
-extern int *GetJmpAddress();
+extern int *GetJmpAddress(void);
+#ifndef TEST_NO_SUBPROC
 #define SUB_PROC 1
 #define SUB_PROC_BEGIN(parentAction)   if (fork() > 0) parentAction
 #define SUB_PROC_END() *GetJmpAddress() = SUB_PROC; return
 #define SUB_PROC_WAIT(times) for (uint16_t i = 0; i < times; i++) wait(NULL)
+#else
+#define SUB_PROC 0
+#define SUB_PROC_BEGIN(parentAction)
+#define SUB_PROC_END()
+#define SUB_PROC_WAIT(times)
+#endif
 
 extern TestInfo g_testResult;
 
@@ -147,7 +155,7 @@ void RecordFailure(const char *test, const char *filename);
 
 void SkipTest(const char *filename);
 
-void PrintResult(bool showDetail, char *vectorName);
+void PrintResult(bool showDetail, char *vectorName, uint64_t useTime);
 
 void PrintLog(FILE *logFile);
 

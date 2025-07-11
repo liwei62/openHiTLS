@@ -67,7 +67,7 @@ static int32_t ExampleAlpnSelectProtocol(uint8_t **out, uint8_t *outLen, uint8_t
                 *out = &servAlpnList[i + 1];
                 *outLen = servAlpnList[i];
                 ret = HITLS_ALPN_ERR_OK;
-                goto END;
+                goto EXIT;
             }
             j = j + clientAlpnList[j];
             ++j;
@@ -76,7 +76,7 @@ static int32_t ExampleAlpnSelectProtocol(uint8_t **out, uint8_t *outLen, uint8_t
         ++i;
     }
 
-END:
+EXIT:
     return ret;
 }
 
@@ -241,7 +241,7 @@ int32_t DefaultCfgStatusPark(HandshakeTestInfo *testInfo)
     if (testInfo->config == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
     uint16_t groups[] = {HITLS_EC_GROUP_SECP256R1};
     HITLS_CFG_SetGroups(testInfo->config, groups, sizeof(groups) / sizeof(uint16_t));
     uint16_t signAlgs[] = {CERT_SIG_SCHEME_RSA_PKCS1_SHA256, CERT_SIG_SCHEME_ECDSA_SECP256R1_SHA256};
@@ -285,7 +285,7 @@ void ServerAccept(HLT_FrameHandle *handle, TestPara *testPara)
     clientRes = HLT_ProcessTlsInit(remoteProcess, TLS1_2, clientConfig, NULL);
     ASSERT_TRUE(clientRes != NULL);
     HLT_RpcTlsConnect(remoteProcess, clientRes->sslId);
-exit:
+EXIT:
     HLT_CleanFrameHandle();
     HLT_FreeAllProcess();
     return;
@@ -369,7 +369,7 @@ void ServerSendMalformedRecordHeaderMsg(HLT_FrameHandle *handle, TestPara *testP
     ASSERT_EQ((ALERT_Level)HLT_RpcTlsGetAlertLevel(remoteProcess, clientRes->sslId), ALERT_LEVEL_FATAL);
     ASSERT_EQ(
         (ALERT_Description)HLT_RpcTlsGetAlertDescription(remoteProcess, clientRes->sslId), testPara->expectDescription);
-exit:
+EXIT:
     HLT_CleanFrameHandle();
     HLT_FreeAllProcess();
     return;
@@ -474,7 +474,7 @@ void ClientSendMalformedRecordHeaderMsg(HLT_FrameHandle *handle, TestPara *testP
     ASSERT_TRUE(((HITLS_Ctx *)(clientRes->ssl))->hsCtx != NULL);
     ASSERT_EQ(((HITLS_Ctx *)(clientRes->ssl))->hsCtx->state, testPara->expectHsState);
 
-exit:
+EXIT:
     HLT_CleanFrameHandle();
     HLT_FreeAllProcess();
     return;
@@ -541,10 +541,14 @@ int32_t TlsCtxNew(BSL_UIO_TransportType type)
     const BSL_UIO_Method *ori = NULL;
     switch (type) {
         case BSL_UIO_TCP:
+#ifdef HITLS_BSL_UIO_TCP
             ori = BSL_UIO_TcpMethod();
+#endif
             break;
         default:
+#ifdef HITLS_BSL_UIO_SCTP
             ori = BSL_UIO_SctpMethod();
+#endif
             break;
     }
 
@@ -555,9 +559,9 @@ int32_t TlsCtxNew(BSL_UIO_TransportType type)
 
     BSL_UIO_Method method = {0};
     memcpy(&method, ori, sizeof(method));
-    method.write = STUB_MethodWrite;
-    method.read = STUB_MethodRead;
-    method.ctrl = STUB_MethodCtrl;
+    method.uioWrite = STUB_MethodWrite;
+    method.uioRead = STUB_MethodRead;
+    method.uioCtrl = STUB_MethodCtrl;
 
     uio = BSL_UIO_New(&method);
     ASSERT_TRUE(uio != NULL);
@@ -575,7 +579,7 @@ int32_t TlsCtxNew(BSL_UIO_TransportType type)
     g_tlsCtx = ctx;
     g_uio = uio;
     return HITLS_SUCCESS;
-exit:
+EXIT:
     BSL_UIO_Free(uio);
     HITLS_Free(ctx);
     HITLS_CFG_FreeConfig(config);
@@ -610,7 +614,7 @@ int32_t DefaultCfgStatusParkWithSuite(HandshakeTestInfo *testInfo)
     if (testInfo->config == NULL) {
         return HITLS_INTERNAL_EXCEPTION;
     }
-    HITLS_CFG_SetCloseCheckKeyUsage(testInfo->config, false);
+    HITLS_CFG_SetCheckKeyUsage(testInfo->config, false);
     uint16_t cipherSuits[] = {HITLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256};
     HITLS_CFG_SetCipherSuites(testInfo->config, cipherSuits, sizeof(cipherSuits) / sizeof(uint16_t));
     testInfo->config->isSupportExtendMasterSecret = testInfo->isSupportExtendMasterSecret;
@@ -622,12 +626,10 @@ int32_t DefaultCfgStatusParkWithSuite(HandshakeTestInfo *testInfo)
 
 int32_t SendHelloReq(HITLS_Ctx *ctx)
 {
-    int32_t ret;
     uint8_t buf[HS_MSG_HEADER_SIZE] = {0u};
     size_t len = HS_MSG_HEADER_SIZE;
 
-    ret = REC_Write(ctx, REC_TYPE_HANDSHAKE, buf, len);
-    return ret;
+    return REC_Write(ctx, REC_TYPE_HANDSHAKE, buf, len);
 }
 
 int32_t ConstructAnEmptyCertMsg(FRAME_LinkObj *link)

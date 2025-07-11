@@ -30,6 +30,7 @@
 #define DRBG_CTR_MAX_KEYLEN (32)
 #define AES_BLOCK_LEN (16)
 #define DRBG_CTR_MAX_SEEDLEN (48)
+#define DRBG_CTR_MIN_ENTROPYLEN (32)
 
 typedef struct {
     uint8_t k[DRBG_CTR_MAX_KEYLEN];   // DRBG_CTR_MAX_KEYLEN 32
@@ -37,7 +38,7 @@ typedef struct {
     uint8_t kx[DRBG_CTR_MAX_SEEDLEN]; // DRBG_CTR_MAX_SEEDLEN 48
     uint32_t keyLen;
     uint32_t seedLen;
-    const EAL_CipherMethod *ciphMeth;
+    const EAL_SymMethod *ciphMeth;
     void *ctrCtx;
     void *dfCtx;
     bool isUsedDf;
@@ -71,7 +72,7 @@ static void DRBG_CtrInc(uint8_t *v, uint32_t len)
 int32_t DRBG_CtrUpdate(DRBG_Ctx *drbg, const CRYPT_Data *in1, const CRYPT_Data *in2)
 {
     DRBG_CtrCtx *ctx = (DRBG_CtrCtx *)drbg->ctx;
-    const EAL_CipherMethod *ciphMeth = ctx->ciphMeth;
+    const EAL_SymMethod *ciphMeth = ctx->ciphMeth;
     int32_t ret;
     uint8_t tempData[DRBG_CTR_MAX_SEEDLEN];
     CRYPT_Data temp;
@@ -93,9 +94,9 @@ int32_t DRBG_CtrUpdate(DRBG_Ctx *drbg, const CRYPT_Data *in1, const CRYPT_Data *
     */
     for (offset = 0; offset < ctx->seedLen; offset += AES_BLOCK_LEN) {
         DRBG_CtrInc(ctx->v, AES_BLOCK_LEN);
-        if ((ret = ciphMeth->encrypt(ctx->ctrCtx, ctx->v, tempData + offset, AES_BLOCK_LEN)) != CRYPT_SUCCESS) {
+        if ((ret = ciphMeth->encryptBlock(ctx->ctrCtx, ctx->v, tempData + offset, AES_BLOCK_LEN)) != CRYPT_SUCCESS) {
             BSL_ERR_PUSH_ERROR(ret);
-            goto ERR;
+            goto EXIT;
         }
     }
 
@@ -109,13 +110,13 @@ int32_t DRBG_CtrUpdate(DRBG_Ctx *drbg, const CRYPT_Data *in1, const CRYPT_Data *
     if (memcpy_s(ctx->k, DRBG_CTR_MAX_KEYLEN, temp.data, ctx->keyLen) != EOK) {
         BSL_ERR_PUSH_ERROR(CRYPT_SECUREC_FAIL);
         ret = CRYPT_SECUREC_FAIL;
-        goto ERR;
+        goto EXIT;
     }
     // The length to be copied of ctx->V is AES_BLOCK_LEN, which is also the array length.
     // The lower bits of temp.data are used for ctx->K, and the upper bits are used for ctx->V.
     (void)memcpy_s(ctx->v, AES_BLOCK_LEN, temp.data + ctx->keyLen, AES_BLOCK_LEN);
-ERR:
-    ciphMeth->clean(ctx->ctrCtx);
+EXIT:
+    ciphMeth->cipherDeInitCtx(ctx->ctrCtx);
     return ret;
 }
 
@@ -130,10 +131,9 @@ static int32_t DRBG_CtrBCCUpdateBlock(DRBG_Ctx *drbg, const uint8_t *in, uint8_t
         4.2 chaining_value = Block_Encrypt (Key, input_block).
     */
     DATA_XOR(out, in, out, len);
-    if ((ret = ctx->ciphMeth->encrypt(ctx->dfCtx, out, out, AES_BLOCK_LEN)) != CRYPT_SUCCESS) {
+    if ((ret = ctx->ciphMeth->encryptBlock(ctx->dfCtx, out, out, AES_BLOCK_LEN)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        ctx->ciphMeth->clean(ctx->dfCtx);
-        return ret;
+        ctx->ciphMeth->cipherDeInitCtx(ctx->dfCtx);
     }
 
     return ret;
@@ -229,7 +229,6 @@ static int32_t DRBG_CtrBCCFinal(DRBG_Ctx *drbg, uint8_t temp[16], uint32_t tempL
 
     if ((ret = DRBG_CtrBCCUpdateKX(drbg, temp)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        return ret;
     }
 
     return ret;
@@ -238,7 +237,7 @@ static int32_t DRBG_CtrBCCFinal(DRBG_Ctx *drbg, uint8_t temp[16], uint32_t tempL
 static int32_t BlockCipherDfCal(DRBG_Ctx *drbg, CRYPT_Data *out)
 {
     DRBG_CtrCtx *ctx = (DRBG_CtrCtx *)drbg->ctx;
-    const EAL_CipherMethod *ciphMeth = ctx->ciphMeth;
+    const EAL_SymMethod *ciphMeth = ctx->ciphMeth;
     int32_t ret;
     uint32_t kOffset = 0;
     uint32_t vOffset = ctx->keyLen;
@@ -250,10 +249,10 @@ static int32_t BlockCipherDfCal(DRBG_Ctx *drbg, CRYPT_Data *out)
     }
 
     while (kOffset < ctx->seedLen) {
-        ret = ciphMeth->encrypt(ctx->ctrCtx, ctx->kx + vOffset, ctx->kx + kOffset, AES_BLOCK_LEN);
+        ret = ciphMeth->encryptBlock(ctx->ctrCtx, ctx->kx + vOffset, ctx->kx + kOffset, AES_BLOCK_LEN);
         if (ret != CRYPT_SUCCESS) {
             BSL_ERR_PUSH_ERROR(ret);
-            goto ERR;
+            goto EXIT;
         }
 
         vOffset = kOffset;
@@ -263,8 +262,8 @@ static int32_t BlockCipherDfCal(DRBG_Ctx *drbg, CRYPT_Data *out)
     out->data = ctx->kx;
     out->len = ctx->seedLen;
 
-ERR:
-    ciphMeth->clean(ctx->ctrCtx);
+EXIT:
+    ciphMeth->cipherDeInitCtx(ctx->ctrCtx);
     return ret;
 }
 
@@ -336,7 +335,6 @@ static int32_t BlockCipherDf(DRBG_Ctx *drbg, const CRYPT_Data *in1, const CRYPT_
     */
     if ((ret = BlockCipherDfCal(drbg, out)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        return ret;
     }
 
     return ret;
@@ -345,7 +343,7 @@ static int32_t BlockCipherDf(DRBG_Ctx *drbg, const CRYPT_Data *in1, const CRYPT_
 static int32_t DRBG_CtrSetDfKey(DRBG_Ctx *drbg)
 {
     DRBG_CtrCtx *ctx = (DRBG_CtrCtx *)drbg->ctx;
-    const EAL_CipherMethod *ciphMeth = ctx->ciphMeth;
+    const EAL_SymMethod *ciphMeth = ctx->ciphMeth;
     int32_t ret = CRYPT_SUCCESS;
 
     BSL_SAL_CleanseData(ctx->ctrCtx, ciphMeth->ctxSize);
@@ -364,7 +362,6 @@ static int32_t DRBG_CtrSetDfKey(DRBG_Ctx *drbg)
         /* Set key schedule for dfKey */
         if ((ret = ctx->ciphMeth->setEncryptKey(ctx->dfCtx, dfKey, ctx->keyLen)) != CRYPT_SUCCESS) {
             BSL_ERR_PUSH_ERROR(ret);
-            return ret;
         }
     }
 
@@ -399,13 +396,12 @@ int32_t DRBG_CtrInstantiate(DRBG_Ctx *drbg, const CRYPT_Data *entropy, const CRY
     // seed_material = entropy_input || nonce || personalization_string.
     if ((ret = BlockCipherDf(drbg, entropy, nonce, pers, &seedMaterial)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        ctx->ciphMeth->clean(ctx->dfCtx);
+        ctx->ciphMeth->cipherDeInitCtx(ctx->dfCtx);
         return ret;
     }
 
     if ((ret = DRBG_CtrUpdate(drbg, &seedMaterial, NULL)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        return ret;
     }
 
     return ret;
@@ -432,7 +428,6 @@ int32_t DRBG_CtrReseed(DRBG_Ctx *drbg, const CRYPT_Data *entropy, const CRYPT_Da
 
     if ((ret = DRBG_CtrUpdate(drbg, &seedMaterial, NULL)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        return ret;
     }
 
     return ret;
@@ -445,9 +440,9 @@ static int32_t DRBG_CtrGenerateBlock(DRBG_Ctx *drbg, uint8_t *out, uint32_t outL
 
     DRBG_CtrInc(ctx->v, outLen);
 
-    if ((ret = ctx->ciphMeth->encrypt(ctx->ctrCtx, ctx->v, out, outLen)) != CRYPT_SUCCESS) {
+    if ((ret = ctx->ciphMeth->encryptBlock(ctx->ctrCtx, ctx->v, out, outLen)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        ctx->ciphMeth->clean(ctx->ctrCtx);
+        ctx->ciphMeth->cipherDeInitCtx(ctx->ctrCtx);
     }
     return ret;
 }
@@ -539,7 +534,6 @@ int32_t DRBG_CtrGenerate(DRBG_Ctx *drbg, uint8_t *out, uint32_t outLen, const CR
     // (Key, V) = CTR_DRBG_Update (additional_input, Key, V).
     if ((ret = DRBG_CtrUpdate(drbg, adin, NULL)) != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
-        return ret;
     }
 
     return ret;
@@ -549,8 +543,8 @@ void DRBG_CtrUnInstantiate(DRBG_Ctx *drbg)
 {
     DRBG_CtrCtx *ctx = (DRBG_CtrCtx*)drbg->ctx;
 
-    ctx->ciphMeth->clean(ctx->ctrCtx);
-    ctx->ciphMeth->clean(ctx->dfCtx);
+    ctx->ciphMeth->cipherDeInitCtx(ctx->ctrCtx);
+    ctx->ciphMeth->cipherDeInitCtx(ctx->dfCtx);
     BSL_SAL_CleanseData((void *)(ctx->k), sizeof(ctx->k));
     BSL_SAL_CleanseData((void *)(ctx->v), sizeof(ctx->v));
     BSL_SAL_CleanseData((void *)(ctx->kx), sizeof(ctx->kx));
@@ -565,7 +559,7 @@ DRBG_Ctx *DRBG_CtrDup(DRBG_Ctx *drbg)
     }
 
     ctx = (DRBG_CtrCtx*)drbg->ctx;
-    return DRBG_NewCtrCtx(ctx->ciphMeth, ctx->keyLen, ctx->isUsedDf, &(drbg->seedMeth), drbg->seedCtx);
+    return DRBG_NewCtrCtx(ctx->ciphMeth, ctx->keyLen,  drbg->isGm, ctx->isUsedDf, &(drbg->seedMeth), drbg->seedCtx);
 }
 
 void DRBG_CtrFree(DRBG_Ctx *drbg)
@@ -581,7 +575,7 @@ void DRBG_CtrFree(DRBG_Ctx *drbg)
     return;
 }
 
-DRBG_Ctx *DRBG_NewCtrCtx(const EAL_CipherMethod *ciphMeth, const uint32_t keyLen, const bool isUsedDf,
+DRBG_Ctx *DRBG_NewCtrCtx(const EAL_SymMethod *ciphMeth, const uint32_t keyLen, bool isGm, const bool isUsedDf,
     const CRYPT_RandSeedMethod *seedMeth, void *seedCtx)
 {
     static DRBG_Method meth = {
@@ -614,7 +608,11 @@ DRBG_Ctx *DRBG_NewCtrCtx(const EAL_CipherMethod *ciphMeth, const uint32_t keyLen
     ctx->ciphMeth = ciphMeth;
 
     drbg->state = DRBG_STATE_UNINITIALISED;
-    drbg->reseedInterval = DRBG_MAX_RESEED_INTERVAL;
+    drbg->isGm = isGm;
+    drbg->reseedInterval = (drbg->isGm) ? HITLS_CRYPTO_RESEED_INTERVAL_GM : DRBG_MAX_RESEED_INTERVAL;
+#if defined(HITLS_CRYPTO_DRBG_GM)
+    drbg->reseedIntervalTime = (drbg->isGm) ? HITLS_CRYPTO_DRBG_RESEED_TIME_GM : 0;
+#endif
 
     ctx->keyLen = keyLen;
     ctx->seedLen = AES_BLOCK_LEN + keyLen;
@@ -625,10 +623,11 @@ DRBG_Ctx *DRBG_NewCtrCtx(const EAL_CipherMethod *ciphMeth, const uint32_t keyLen
     drbg->seedCtx = seedCtx;
 
     drbg->strength = keyLen * 8;
-    drbg->maxRequest = DRBG_MAX_REQUEST;
+    drbg->maxRequest = (drbg->isGm) ? DRBG_MAX_REQUEST_SM4 : DRBG_MAX_REQUEST;
     // NIST.SP.800-90Ar1, Section 10.3.1 Table 3 defined those initial value.
     if (isUsedDf) {
-        drbg->entropyRange.min = keyLen;
+        // shift rightwards by 3, converting from bit length to byte length
+        drbg->entropyRange.min = (drbg->isGm) ? DRBG_CTR_MIN_ENTROPYLEN : keyLen;
         drbg->entropyRange.max = DRBG_MAX_LEN;
         drbg->maxPersLen = DRBG_MAX_LEN;
         drbg->maxAdinLen = DRBG_MAX_LEN;

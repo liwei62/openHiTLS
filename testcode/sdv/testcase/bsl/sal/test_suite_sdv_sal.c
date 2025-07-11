@@ -108,7 +108,7 @@ static void *TEST_Read(void *arg)
     g_threadDefaultRead001 = g_threadDefaultWrite001;
     BSL_SAL_ThreadUnlock(lock);
     ASSERT_TRUE(ret == BSL_SUCCESS);
-exit:
+EXIT:
     return NULL;
 }
 
@@ -126,7 +126,7 @@ static void *TEST_Write(void *arg)
     }
 
     ASSERT_TRUE(ret == BSL_SUCCESS);
-exit:
+EXIT:
     return NULL;
 }
 #endif
@@ -141,8 +141,8 @@ exit:
  *    1. Call BSL_SAL_Malloc to allocate 0-byte space. Expected result 1 is obtained.
  *    2. Call BSL_SAL_Malloc to allocate 1-byte space. Expected result 2 is obtained.
  *    3. Call BSL_SAL_Calloc to allocate a large memory space. Expected result 3 is obtained.
- *    4. Call BSL_SAL_RegMemCallback to transfer an exception parameter. Expected result 4 is obtained.
- *    5. Call BSL_SAL_RegMemCallback to transfer an normal parameter. Expected result 5 is obtained.
+ *    4. Call BSL_SAL_CallBack_Ctrl to transfer an exception parameter. Expected result 4 is obtained.
+ *    5. Call BSL_SAL_CallBack_Ctrl to transfer an normal parameter. Expected result 5 is obtained.
  *    6. Call BSL_SAL_Malloc to allocate 8-byte space. Expected result 6 is obtained.
  *    7. Call BSL_SAL_FREE to free 8-byte space. Expected result 7 is obtained.
  * @expect
@@ -170,29 +170,19 @@ void SDV_BSL_SAL_REGMEM_API_TC001(void)
     ptr = BSL_SAL_Calloc(0xFFFFFFFF, 0xFFFFFFFF);
     ASSERT_TRUE(ptr == NULL);
 
-    ASSERT_TRUE(BSL_SAL_RegMemCallback(NULL) == BSL_SAL_ERR_BAD_PARAM);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(0, NULL) == BSL_SAL_ERR_BAD_PARAM);
 
-    BSL_SAL_MemCallback cb = {NULL, NULL};
-    ASSERT_TRUE(BSL_SAL_RegMemCallback(&cb) == BSL_SAL_ERR_BAD_PARAM);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_MALLOC, NULL) == BSL_SUCCESS);
 
-    cb.pfMalloc = StdMalloc;
-    cb.pfFree = NULL;
-    ASSERT_TRUE(BSL_SAL_RegMemCallback(&cb) == BSL_SAL_ERR_BAD_PARAM);
-
-    cb.pfMalloc = NULL;
-    cb.pfFree = free;
-    ASSERT_TRUE(BSL_SAL_RegMemCallback(&cb) == BSL_SAL_ERR_BAD_PARAM);
-
-    cb.pfMalloc = StdMalloc;
-    cb.pfFree = free;
-    ASSERT_TRUE(BSL_SAL_RegMemCallback(&cb) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_MALLOC, StdMalloc) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_FREE, free) == BSL_SUCCESS);
 
     ptr = BSL_SAL_Malloc(0);
     ASSERT_TRUE(ptr != NULL);
 
     BSL_SAL_FREE(ptr);
     ASSERT_TRUE(ptr == NULL);
-exit:
+EXIT:
     return;
 }
 /* END_CASE */
@@ -202,8 +192,8 @@ exit:
  * @title Register thread-related functions.
  * @precon nan
  * @brief
- *    1. Call BSL_SAL_RegThreadCallback to transfer an exception parameter. Expected result 1 is obtained.
- *    2. Call BSL_SAL_RegMemCallback to transfer an normal parameter. Expected result 2 is obtained.
+ *    1. Call BSL_SAL_CallBack_Ctrl to transfer an exception parameter. Expected result 1 is obtained.
+ *    2. Call BSL_SAL_CallBack_Ctrl to transfer an normal parameter. Expected result 2 is obtained.
  *    3. Call BSL_SAL_ThreadLockNew to transfer an exception parameter. Expected result 3 is obtained.
  *    4. Call BSL_SAL_ThreadReadLock to transfer an exception parameter. Expected result 4 is obtained.
  *    5. Call BSL_SAL_ThreadWriteLock to transfer an exception parameter. Expected result 5 is obtained.
@@ -221,28 +211,16 @@ exit:
 /* BEGIN_CASE */
 void SDV_BSL_SAL_REG_THREAD_API_TC001(void)
 {
-    ASSERT_TRUE(BSL_SAL_RegThreadCallback(NULL) == BSL_SAL_ERR_BAD_PARAM);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(0, NULL) == BSL_SAL_ERR_BAD_PARAM);
 
-    BSL_SAL_ThreadCallback cb = { 0 };
-    ASSERT_TRUE(BSL_SAL_RegThreadCallback(&cb) == BSL_SAL_ERR_BAD_PARAM);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(0, NULL) == BSL_SAL_ERR_BAD_PARAM);
 
-    cb.pfThreadLockNew = pthreadRWLockNew;
-    ASSERT_TRUE(BSL_SAL_RegThreadCallback(&cb) == BSL_SAL_ERR_BAD_PARAM);
-
-    cb.pfThreadLockFree = pthreadRWLockFree;
-    ASSERT_TRUE(BSL_SAL_RegThreadCallback(&cb) == BSL_SAL_ERR_BAD_PARAM);
-
-    cb.pfThreadReadLock = pthreadRWLockReadLock;
-    ASSERT_TRUE(BSL_SAL_RegThreadCallback(&cb) == BSL_SAL_ERR_BAD_PARAM);
-
-    cb.pfThreadWriteLock = pthreadRWLockWriteLock;
-    ASSERT_TRUE(BSL_SAL_RegThreadCallback(&cb) == BSL_SAL_ERR_BAD_PARAM);
-
-    cb.pfThreadUnlock = pthreadRWLockUnlock;
-    ASSERT_TRUE(BSL_SAL_RegThreadCallback(&cb) == BSL_SAL_ERR_BAD_PARAM);
-
-    cb.pfThreadGetId = pthreadGetId;
-    ASSERT_TRUE(BSL_SAL_RegThreadCallback(&cb) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_NEW_CB_FUNC, pthreadRWLockNew) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_FREE_CB_FUNC, pthreadRWLockFree) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_READ_LOCK_CB_FUNC, pthreadRWLockReadLock) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_WRITE_LOCK_CB_FUNC, pthreadRWLockWriteLock) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_LOCK_UNLOCK_CB_FUNC, pthreadRWLockUnlock) == BSL_SUCCESS);
+    ASSERT_TRUE(BSL_SAL_CallBack_Ctrl(BSL_SAL_THREAD_GET_ID_CB_FUNC, pthreadGetId) == BSL_SUCCESS);
 
     // Cannot create a lock handle because the pointer of the pointer is NULL.
     ASSERT_TRUE(BSL_SAL_ThreadLockNew(NULL) == BSL_SAL_ERR_BAD_PARAM);
@@ -250,7 +228,7 @@ void SDV_BSL_SAL_REG_THREAD_API_TC001(void)
     ASSERT_TRUE(BSL_SAL_ThreadWriteLock(NULL) == BSL_SAL_ERR_BAD_PARAM);
     ASSERT_TRUE(BSL_SAL_ThreadUnlock(NULL) == BSL_SAL_ERR_BAD_PARAM);
     BSL_SAL_ThreadLockFree(NULL);
-exit:
+EXIT:
     return;
 }
 /* END_CASE */
@@ -279,7 +257,7 @@ void SDV_BSL_SAL_MEM_API_TC001(void)
     memset_s(obj, 100, 0x1, 100);
 
     BSL_SAL_ClearFree(obj, 100);
-exit:
+EXIT:
     return;
 #endif
 }
@@ -312,7 +290,7 @@ void SDV_BSL_SAL_MEM_API_TC002(void)
     ASSERT_TRUE(obj3 != NULL);
     ASSERT_TRUE(memcmp(objZero3, obj3, 1000) == 0);
     BSL_SAL_FREE(obj3);
-exit:
+EXIT:
     return;
 #endif
 }
@@ -353,7 +331,7 @@ void SDV_BSL_SAL_DUMP_API_TC001(void)
     ASSERT_TRUE(testPtr != NULL);
 
     ASSERT_TRUE(memcmp(testPtr, srcPtr, memLen) == 0);
-exit:
+EXIT:
     BSL_SAL_FREE(srcPtr);
     BSL_SAL_FREE(testPtr);
 #endif
@@ -394,7 +372,7 @@ void SDV_BSL_SAL_REALLOC_API_TC001(void)
 
     // The realloc releases the obj. Therefore, the obj does not need to be released.
     // The value of realloc size to 0 is an implementation definition. Therefore, the test is not performed.
-exit:
+EXIT:
     BSL_SAL_FREE(obj3);
 #endif
 }
@@ -437,7 +415,7 @@ void SDV_BSL_SAL_THREAD_CREATE_FUNC_TC001(void)
     BSL_SAL_ThreadClose(thread);
     BSL_SAL_ThreadClose(NULL);
     BSL_SAL_ThreadLockFree(lock);
-exit:
+EXIT:
     return;
 #endif
 }
@@ -465,7 +443,7 @@ void SDV_BSL_SAL_THREAD_API_TC001(void)
     ASSERT_EQ(BSL_SAL_ThreadRunOnce(NULL, TestRunOnce), BSL_SAL_ERR_BAD_PARAM);
     ASSERT_EQ(BSL_SAL_ThreadRunOnce(&isErrInit, NULL), BSL_SAL_ERR_BAD_PARAM);
     ASSERT_EQ(BSL_SAL_ThreadRunOnce(&isErrInit, TestRunOnce), BSL_SUCCESS);
-exit:
+EXIT:
     return;
 }
 /* END_CASE */
@@ -510,7 +488,7 @@ void SDV_BSL_SAL_CONDVAR_CREATE_FUNC_TC001(void)
     ASSERT_TRUE(ret == BSL_SAL_ERR_BAD_PARAM);
     ret = BSL_SAL_DeleteCondVar(condVar);
     ASSERT_TRUE(ret == BSL_SUCCESS);
-exit:
+EXIT:
     return;
 #endif
 }
@@ -554,7 +532,7 @@ void SDV_BSL_SAL_CONDVAR_WAIT_API_TC001(void)
     ret = BSL_SAL_DeleteCondVar(condVar);
     ASSERT_TRUE(ret == BSL_SUCCESS);
     BSL_SAL_ThreadLockFree(lock);
-exit:
+EXIT:
     return;
 #endif
 }
@@ -569,7 +547,7 @@ static void *ThreadTest(void *arg)
     (void)arg;
     int32_t ret1 = BSL_SAL_CondTimedwaitMs(&g_lock, g_condVar, 10000000);
     ASSERT_TRUE(ret1 == BSL_SUCCESS);
-exit:
+EXIT:
     return NULL;
 }
 #endif
@@ -615,7 +593,7 @@ void SDV_BSL_SAL_CONDVAR_WAIT_FUNC_TC001(void)
     ret = BSL_SAL_DeleteCondVar(g_condVar);
     ASSERT_TRUE(ret == BSL_SUCCESS);
     pthread_mutex_destroy(&g_lock);
-exit:
+EXIT:
     return;
 #endif
 }
@@ -649,7 +627,7 @@ void SDV_BSL_SAL_STR_API_TC001(void)
     ASSERT_TRUE(BSL_SAL_Memchr(NULL, 's', 10) == NULL);
     ASSERT_TRUE(BSL_SAL_Atoi(NULL) == 0);
     ASSERT_TRUE(BSL_SAL_Strnlen(NULL, 0) == 0);
-exit:
+EXIT:
     return;
 #endif
 }
@@ -702,7 +680,7 @@ void SDV_BSL_SAL_STR_FUNC_TC001(void)
     ASSERT_TRUE(BSL_SAL_Strnlen(str1, strlen(str1)) == 7);
     ASSERT_TRUE(BSL_SAL_Strnlen(str1, 100) == 7);
     ASSERT_TRUE(BSL_SAL_Strnlen(str1, 3) == 3);
-exit:
+EXIT:
     return;
 #endif
 }
@@ -755,7 +733,7 @@ void SDV_BSL_SAL_THREAD_DEFAULT_FUNC_TC001(void)
         BSL_SAL_ThreadClose(pid[j]);
     }
     for (size_t n = 0; n < m; n++) {
-        BSL_SAL_ThreadClose(pid[n]);
+        BSL_SAL_ThreadClose(pid2[n]);
     }
     ASSERT_EQ(g_threadDefaultWrite001, TEST_READ_PID_CNT * TEST_THREAD_DEFAULT_TC001_WRITE_CNT);
     // Concurrent reads. The read result is uncertain and does not determine whether to perform the read operation.
@@ -772,16 +750,51 @@ void SDV_BSL_SAL_THREAD_DEFAULT_FUNC_TC001(void)
         childId = BSL_SAL_ThreadGetId();
     } else {
         // The parent process
-        goto exit;
+        goto EXIT;
     }
     // The default implementation uses pthread_self. Therefore, the IDs of the parent and child processes are the same.
     ASSERT_EQ(childId, mainId);
-exit:
+EXIT:
     // 5
     BSL_SAL_ThreadLockFree(lock);
     g_threadDefaultWrite001 = 0;
     g_threadDefaultRead001 = 0;
     g_threadDefaultId001 = 0;
+#endif
+}
+/* END_CASE */
+
+/**
+ * @test   SDV_BSL_SAL_CALLBACK_CTRL_FUNC_TC001
+ * @title  test BSL_SAL_CallBack_Ctrl functions
+ * @precon nan
+ * @brief
+ *    1.Call BSL_SAL_CallBack_Ctrl registering file Callback Function, Expected result 1 is obtained.
+ *    2.Call BSL_SAL_CallBack_Ctrl registering time Callback Function, Expected result 1 is obtained.
+ *    3.Call BSL_SAL_CallBack_Ctrl registering net Callback Function, Expected result 1 is obtained.
+ *    4.Call BSL_SAL_CallBack_Ctrl registering invalid Callback Function, Expected result 2 is obtained.
+ *    5.Call BSL_SAL_SockGetLastSocketError obtaining the last socket error, Expected result 3 is obtained.
+ * @expect
+ *    1. BSL_SUCCESS
+ *    2. BSL_SAL_ERR_NET_IOCTL
+ *    3. Succeeded in obtaining the last socket error.
+ */
+/* BEGIN_CASE */
+void SDV_BSL_SAL_CALLBACK_CTRL_FUNC_TC001(void)
+{
+#if defined(HITLS_BSL_SAL_FILE) || defined(HITLS_BSL_SAL_TIME) || defined(HITLS_BSL_SAL_NET)
+#ifdef HITLS_BSL_SAL_FILE
+    ASSERT_EQ(BSL_SAL_CallBack_Ctrl(BSL_SAL_FILE_OPEN_CB_FUNC, NULL), BSL_SUCCESS);
+#endif
+#ifdef HITLS_BSL_SAL_TIME
+    ASSERT_EQ(BSL_SAL_CallBack_Ctrl(BSL_SAL_TIME_GET_UTC_TIME_CB_FUNC, NULL), BSL_SUCCESS);
+#endif
+#ifdef HITLS_BSL_SAL_NET
+    ASSERT_EQ(BSL_SAL_CallBack_Ctrl(BSL_SAL_NET_WRITE_CB_FUNC, NULL), BSL_SUCCESS);
+    ASSERT_EQ(BSL_SAL_Ioctlsocket(0, 0, NULL), BSL_SAL_ERR_NET_IOCTL);
+#endif
+EXIT:
+    return;
 #endif
 }
 /* END_CASE */

@@ -50,7 +50,6 @@ void SDV_TLS_TLCP_CIPHER_SUITE_TC01(char *cipherSuiteType)
     HLT_SetCipherSuites(serverCtxConfig, cipherSuiteType);
     serverCtxConfig->isSupportClientVerify = true;
     serverCtxConfig->needCheckKeyUsage = true;
-
     // The server listens on the TLS link.
     serverRes = HLT_ProcessTlsAccept(remoteProcess, TLCP1_1, serverCtxConfig, NULL);
     ASSERT_TRUE(serverRes != NULL);
@@ -73,7 +72,7 @@ void SDV_TLS_TLCP_CIPHER_SUITE_TC01(char *cipherSuiteType)
     ASSERT_TRUE(readLen == strlen("Hello World"));
     ASSERT_TRUE(memcmp("Hello World", readBuf, readLen) == 0);
 
-exit:
+EXIT:
     HLT_FreeAllProcess();
 }
 /* END_CASE */

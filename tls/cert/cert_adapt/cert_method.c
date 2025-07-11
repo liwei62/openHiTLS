@@ -12,8 +12,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-
 #include <stddef.h>
+#include "hitls_build.h"
 #include "securec.h"
 #include "tls_binlog_id.h"
 #include "bsl_log_internal.h"
@@ -21,16 +21,15 @@
 #include "bsl_err_internal.h"
 #include "hitls_error.h"
 #include "hitls_cert_reg.h"
+#include "hitls_x509_adapt.h"
+#include "hitls_pki_x509.h"
 #include "tls_config.h"
 #include "tls.h"
 #include "cert_mgr_ctx.h"
 #include "cert_method.h"
-
+#ifndef HITLS_TLS_FEATURE_PROVIDER
 HITLS_CERT_MgrMethod g_certMgrMethod = {0};
-
-HITLS_CERT_UserKeyMgrMethod g_certUserKeyMgrMethod = {0};
-
-static int32_t IsMethodValid(const HITLS_CERT_MgrMethod *method)
+static bool IsMethodValid(const HITLS_CERT_MgrMethod *method)
 {
     if (method == NULL ||
         method->certStoreNew == NULL ||
@@ -60,13 +59,13 @@ int32_t HITLS_CERT_RegisterMgrMethod(HITLS_CERT_MgrMethod *method)
 {
     /* check the callbacks that must be set */
     if (IsMethodValid(method) == false) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15003, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "HITLS_CERT_RegisterMgrMethod error: input NULL.", 0, 0, 0, 0);
         BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return HITLS_NULL_INPUT;
+        return RETURN_ERROR_NUMBER_PROCESS(HITLS_NULL_INPUT, BINLOG_ID16108, "input NULL");
     }
 
-    (void)memcpy_s(&g_certMgrMethod, sizeof(HITLS_CERT_MgrMethod), method, sizeof(HITLS_CERT_MgrMethod));
+    if (memcpy_s(&g_certMgrMethod, sizeof(HITLS_CERT_MgrMethod), method, sizeof(HITLS_CERT_MgrMethod)) != EOK) {
+        return HITLS_MEMCPY_FAIL;
+    }
     return HITLS_SUCCESS;
 }
 
@@ -76,312 +75,214 @@ void HITLS_CERT_DeinitMgrMethod(void)
     (void)memcpy_s(&g_certMgrMethod, sizeof(HITLS_CERT_MgrMethod), &mgr, sizeof(HITLS_CERT_MgrMethod));
 }
 
-int32_t HITLS_CERT_RegisterUserKeyMgrMethod(HITLS_CERT_UserKeyMgrMethod *method)
-{
-    /* the usage of HITLS_CERT_UserKeyMgrMethod depends on HITLS_CERT_MgrMethod,
-       therefore there is the judgment of registration of HITLS_CERT_MgrMethod */
-    HITLS_CERT_MgrMethod *certMgrMethod = SAL_CERT_GetMgrMethod();
-    if (IsMethodValid(certMgrMethod) == false) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID16018, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "HITLS_CERT_RegisterMgrMethod is not registed", 0, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return HITLS_NULL_INPUT;
-    }
-
-    if (method == NULL ||
-        method->keyToUserKey == NULL ||
-        method->keyFormUserKey == NULL ||
-        method->userKeyFree == NULL ||
-        method->userKeyDup == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15007, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "HITLS_CERT_RegisterUserKeyMgrMethod error: input NULL.", 0, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return HITLS_NULL_INPUT;
-    }
-
-    if (memcpy_s(&g_certUserKeyMgrMethod,
-        sizeof(HITLS_CERT_UserKeyMgrMethod),
-        method,
-        sizeof(HITLS_CERT_UserKeyMgrMethod)) != EOK) {
-        return HITLS_MEMCPY_FAIL;
-    }
-    return HITLS_SUCCESS;
-}
-
-void HITLS_CERT_DeinitUserKeyMgrMethod(void)
-{
-    HITLS_CERT_UserKeyMgrMethod mgr = {0};
-    (void)memcpy_s(
-        &g_certUserKeyMgrMethod, sizeof(HITLS_CERT_UserKeyMgrMethod), &mgr, sizeof(HITLS_CERT_UserKeyMgrMethod));
-    return;
-}
-
 HITLS_CERT_MgrMethod *SAL_CERT_GetMgrMethod(void)
 {
     return &g_certMgrMethod;
 }
 
-HITLS_CERT_UserKeyMgrMethod *SAL_CERT_GetUserKeyMgrMethod(void)
+HITLS_CERT_MgrMethod *HITLS_CERT_GetMgrMethod(void)
 {
-    return &g_certUserKeyMgrMethod;
+    return SAL_CERT_GetMgrMethod();
+}
+
+#endif /* HITLS_TLS_FEATURE_PROVIDER */
+
+int32_t CheckCertCallBackRetVal(char *logStr, int32_t callBackRet, uint32_t bingLogId, uint32_t hitlsRet)
+{
+    if (callBackRet != HITLS_SUCCESS) {
+        BSL_LOG_BINLOG_FIXLEN(bingLogId, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+            "%s error: callback ret = 0x%x.", logStr, callBackRet, 0, 0);
+        BSL_ERR_PUSH_ERROR((int32_t)hitlsRet);
+        return (int32_t)hitlsRet;
+    }
+    return HITLS_SUCCESS;
 }
 
 HITLS_CERT_Store *SAL_CERT_StoreNew(const CERT_MgrCtx *mgrCtx)
 {
-    if (mgrCtx == NULL || mgrCtx->method.certStoreNew == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15006, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "cert store new error: input NULL.", 0, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return NULL;
-    }
-
-    HITLS_CERT_Store *store = mgrCtx->method.certStoreNew();
-    if (store == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15009, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "cert store new error: callback return NULL.", 0, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_STORE_ERR_NEW);
-        return NULL;
-    }
-
-    return store;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    return HITLS_X509_ProviderStoreCtxNew(LIBCTX_FROM_CERT_MGR_CTX(mgrCtx), ATTRIBUTE_FROM_CERT_MGR_CTX(mgrCtx));
+#else
+    return mgrCtx->method.certStoreNew();
+#endif
 }
 
 HITLS_CERT_Store *SAL_CERT_StoreDup(const CERT_MgrCtx *mgrCtx, HITLS_CERT_Store *store)
 {
-    if (mgrCtx == NULL || store == NULL || mgrCtx->method.certStoreDup == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15008, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "cert store dup error: input NULL.", 0, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return NULL;
-    }
-
-    HITLS_CERT_Store *newStore = mgrCtx->method.certStoreDup(store);
-    if (newStore == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15062, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "cert store dup error: callback return NULL.", 0, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_ERR_STORE_DUP);
-        return NULL;
-    }
-
-    return newStore;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    (void)mgrCtx;
+    return HITLS_X509_Adapt_StoreDup(store);
+#else
+    return mgrCtx->method.certStoreDup(store);
+#endif
 }
 
 void SAL_CERT_StoreFree(const CERT_MgrCtx *mgrCtx, HITLS_CERT_Store *store)
 {
-    if (mgrCtx == NULL || store == NULL || mgrCtx->method.certStoreFree == NULL) {
-        return;
-    }
-
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    (void)mgrCtx;
+    return HITLS_X509_StoreCtxFree(store);
+#else
     mgrCtx->method.certStoreFree(store);
-    return;
+#endif
 }
 
 int32_t SAL_CERT_BuildChain(HITLS_Config *config, HITLS_CERT_Store *store, HITLS_CERT_X509 *cert,
     HITLS_CERT_X509 **certList, uint32_t *num)
 {
-    if (config == NULL || store == NULL || cert == NULL || certList == NULL || num == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return HITLS_NULL_INPUT;
-    }
-
-    CERT_MgrCtx *mgrCtx = config->certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.buildCertChain == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_UNREGISTERED_CALLBACK);
-        return HITLS_UNREGISTERED_CALLBACK;
-    }
-
-    int32_t ret = mgrCtx->method.buildCertChain(config, store, cert, certList, num);
-    if (ret != HITLS_SUCCESS) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15464, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "cert store build chain by cert error: ret = 0x%x.", ret, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_ERR_BUILD_CHAIN);
-        return HITLS_CERT_ERR_BUILD_CHAIN;
-    }
-
-    return HITLS_SUCCESS;
+    int32_t ret;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ret = HITLS_X509_Adapt_BuildCertChain(config, store, cert, certList, num);
+#else
+    ret = config->certMgrCtx->method.buildCertChain(config, store, cert, certList, num);
+#endif
+    return CheckCertCallBackRetVal("cert store build chain by cert", ret, BINLOG_ID16083, HITLS_CERT_ERR_BUILD_CHAIN);
 }
 
 int32_t SAL_CERT_VerifyChain(HITLS_Ctx *ctx, HITLS_CERT_Store *store, HITLS_CERT_X509 **certList, uint32_t num)
 {
-    if (ctx == NULL || store == NULL || certList == NULL || num == 0) {
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return HITLS_NULL_INPUT;
-    }
-
-    CERT_MgrCtx *mgrCtx = ctx->config.tlsConfig.certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.verifyCertChain == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_UNREGISTERED_CALLBACK);
-        return HITLS_UNREGISTERED_CALLBACK;
-    }
-
-    int32_t ret = mgrCtx->method.verifyCertChain(ctx, store, certList, num);
-    if (ret != HITLS_SUCCESS) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15465, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "cert store verify chain error: callback ret = 0x%x.", ret, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_ERR_VERIFY_CERT_CHAIN);
-        return HITLS_CERT_ERR_VERIFY_CERT_CHAIN;
-    }
-
-    return HITLS_SUCCESS;
+    int32_t ret;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ret = HITLS_X509_Adapt_VerifyCertChain(ctx, store, certList, num);
+#else
+    ret = ctx->config.tlsConfig.certMgrCtx->method.verifyCertChain(ctx, store, certList, num);
+#endif
+    return CheckCertCallBackRetVal("cert store verify chain", ret, BINLOG_ID16084, HITLS_CERT_ERR_VERIFY_CERT_CHAIN);
 }
 
 int32_t SAL_CERT_X509Encode(HITLS_Ctx *ctx, HITLS_CERT_X509 *cert, uint8_t *buf, uint32_t len, uint32_t *usedLen)
 {
-    if (ctx == NULL || cert == NULL || buf == NULL || len == 0 || usedLen == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return HITLS_NULL_INPUT;
-    }
-
-    CERT_MgrCtx *mgrCtx = ctx->config.tlsConfig.certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.certEncode == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_UNREGISTERED_CALLBACK);
-        return HITLS_UNREGISTERED_CALLBACK;
-    }
-
-    int32_t ret = mgrCtx->method.certEncode(ctx, cert, buf, len, usedLen);
-    if (ret != HITLS_SUCCESS) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15466, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "encode cert error: callback ret = 0x%x.", ret, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_ERR_ENCODE_CERT);
-        return HITLS_CERT_ERR_ENCODE_CERT;
-    }
-
-    return HITLS_SUCCESS;
+    int32_t ret;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ret = HITLS_X509_Adapt_CertEncode(ctx, cert, buf, len, usedLen);
+#else
+    ret = ctx->config.tlsConfig.certMgrCtx->method.certEncode(ctx, cert, buf, len, usedLen);
+#endif
+    return CheckCertCallBackRetVal("encode cert", ret, BINLOG_ID16086, HITLS_CERT_ERR_ENCODE_CERT);
 }
 
-HITLS_CERT_X509 *SAL_CERT_X509Parse(HITLS_Config *config, const uint8_t *buf, uint32_t len,
+HITLS_CERT_X509 *SAL_CERT_X509Parse(HITLS_Lib_Ctx *libCtx, const char *attrName,
+    HITLS_Config *config, const uint8_t *buf, uint32_t len,
     HITLS_ParseType type, HITLS_ParseFormat format)
 {
-    if (config == NULL || buf == NULL || len == 0) {
-        return NULL;
-    }
-
-    CERT_MgrCtx *mgrCtx = config->certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.certParse == NULL) {
-        return NULL;
-    }
-
-    HITLS_CERT_X509 *cert = mgrCtx->method.certParse(config, buf, len, type, format);
-    if (cert == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15467, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "parse cert error: len = %u, type = %u, format = %u.", len, type, format, 0);
-        return NULL;
-    }
-
-    return cert;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    (void)config;
+    return HITLS_CERT_ProviderCertParse(libCtx, attrName, buf, len, type, SAL_CERT_GetParseFormatStr(format));
+#else
+    (void)libCtx;
+    (void)attrName;
+    return config->certMgrCtx->method.certParse(config, buf, len, type, format);
+#endif
 }
 
 HITLS_CERT_X509 *SAL_CERT_X509Dup(const CERT_MgrCtx *mgrCtx, HITLS_CERT_X509 *cert)
 {
-    if (mgrCtx == NULL || cert == NULL || mgrCtx->method.certDup == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15002, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "dup cert error: input NULL.", 0, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return NULL;
-    }
-
-    HITLS_CERT_X509 *newCert = mgrCtx->method.certDup(cert);
-    if (newCert == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15181, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "dup cert error: callback return NULL.", 0, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_ERR_X509_DUP);
-        return NULL;
-    }
-
-    return newCert;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    (void)mgrCtx;
+    return (HITLS_CERT_X509 *)HITLS_X509_CertDup(cert);
+#else
+    return mgrCtx->method.certDup(cert);
+#endif
 }
 
 void SAL_CERT_X509Free(HITLS_CERT_X509 *cert)
 {
-    if (cert == NULL || g_certMgrMethod.certFree == NULL) {
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    HITLS_X509_CertFree(cert);
+#else
+    if (cert == NULL) {
         return;
     }
-
     g_certMgrMethod.certFree(cert);
-    return;
+#endif
 }
 
 HITLS_CERT_X509 *SAL_CERT_X509Ref(const CERT_MgrCtx *mgrCtx, HITLS_CERT_X509 *cert)
 {
-    if (mgrCtx == NULL || cert == NULL || mgrCtx->method.certRef == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15335, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "ref cert error: input NULL.", 0, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    (void)mgrCtx;
+    return HITLS_X509_Adapt_CertRef(cert);
+#else
+    if (mgrCtx->method.certRef == NULL) {
         return NULL;
     }
-
-    HITLS_CERT_X509 *newCert = mgrCtx->method.certRef(cert);
-    if (newCert == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15336, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "ref cert error: callback return NULL.", 0, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_ERR_X509_REF);
-        return NULL;
-    }
-
-    return newCert;
+    return mgrCtx->method.certRef(cert);
+#endif
 }
 
-HITLS_CERT_Key *SAL_CERT_KeyParse(HITLS_Config *config, const uint8_t *buf, uint32_t len,
-    HITLS_ParseType type, HITLS_ParseFormat format)
+typedef struct {
+    const char *name;
+    HITLS_ParseFormat format;
+} ParseFormatMap;
+
+static const ParseFormatMap g_parseFormatMap[] = {
+    {"PEM", TLS_PARSE_FORMAT_PEM},
+    {"ASN1", TLS_PARSE_FORMAT_ASN1},
+    {"PFX_COM", TLS_PARSE_FORMAT_PFX_COM},
+    {"PKCS12", TLS_PARSE_FORMAT_PKCS12}
+};
+
+const char *SAL_CERT_GetParseFormatStr(HITLS_ParseFormat format)
 {
-    if (config == NULL || buf == NULL || len == 0) {
-        return NULL;
+    for (size_t i = 0; i < sizeof(g_parseFormatMap) / sizeof(g_parseFormatMap[0]); i++) {
+        if (g_parseFormatMap[i].format == format) {
+            return g_parseFormatMap[i].name;
+        }
     }
+    return NULL;
+}
 
-    CERT_MgrCtx *mgrCtx = config->certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.keyParse == NULL) {
-        return NULL;
+#ifndef HITLS_TLS_FEATURE_PROVIDER
+static HITLS_ParseFormat GetTlsParseFormat(const char *format)
+{
+    if (format == NULL) {
+        return TLS_PARSE_FORMAT_BUTT;
     }
-
-    HITLS_CERT_Key *key = mgrCtx->method.keyParse(config, buf, len, type, format);
-    if (key == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15180, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "parse key error: len = %u, type = %u, format = %u.", len, type, format, 0);
-        return NULL;
+    for (size_t i = 0; i < sizeof(g_parseFormatMap) / sizeof(g_parseFormatMap[0]); i++) {
+        if (BSL_SAL_StrcaseCmp(format, g_parseFormatMap[i].name) == 0) {
+            return g_parseFormatMap[i].format;
+        }
     }
+    return TLS_PARSE_FORMAT_BUTT;
+}
+#endif
 
-    return key;
+HITLS_CERT_Key *SAL_CERT_KeyParse(HITLS_Config *config, const uint8_t *buf, uint32_t len,
+    HITLS_ParseType type, const char *format, const char *encodeType)
+{
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    return HITLS_X509_Adapt_ProviderKeyParse(config, buf, len, type, format, encodeType);
+#else
+    (void)encodeType;
+    return config->certMgrCtx->method.keyParse(config, buf, len, type, GetTlsParseFormat(format));
+#endif
 }
 
 HITLS_CERT_Key *SAL_CERT_KeyDup(const CERT_MgrCtx *mgrCtx, HITLS_CERT_Key *key)
 {
-    if (mgrCtx == NULL || key == NULL || mgrCtx->method.keyDup == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15004, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "dup key error: input NULL.", 0, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return NULL;
-    }
-
-    HITLS_CERT_Key *newKey = mgrCtx->method.keyDup(key);
-    if (newKey == NULL) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15005, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "dup key error: callback return NULL.", 0, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_ERR_KEY_DUP);
-        return NULL;
-    }
-
-    return newKey;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    (void)mgrCtx;
+    return (HITLS_CERT_Key *)CRYPT_EAL_PkeyDupCtx(key);
+#else
+    return mgrCtx->method.keyDup(key);
+#endif
 }
 
 void SAL_CERT_KeyFree(const CERT_MgrCtx *mgrCtx, HITLS_CERT_Key *key)
 {
-    if (mgrCtx == NULL || key == NULL || mgrCtx->method.keyFree == NULL) {
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    (void)mgrCtx;
+    CRYPT_EAL_PkeyFreeCtx(key);
+#else
+    if (key == NULL) {
         return;
     }
-
-    // use the EVP type to release data
-    HITLS_CERT_UserKeyMgrMethod *method = SAL_CERT_GetUserKeyMgrMethod();
-    if (method->userKeyFree != NULL) {
-        method->userKeyFree(key);
-        return;
-    }
-
     mgrCtx->method.keyFree(key);
-    return;
+#endif
 }
 
 /* change the error code when modifying the ctrl command */
-int32_t g_tlsCertCtrlErrorCode[] = {
+uint32_t g_tlsCertCtrlErrorCode[] = {
     HITLS_CERT_STORE_CTRL_ERR_SET_VERIFY_DEPTH,
     HITLS_CERT_STORE_CTRL_ERR_ADD_CERT_LIST,
     HITLS_CERT_CTRL_ERR_GET_ENCODE_LEN,
@@ -396,191 +297,123 @@ int32_t g_tlsCertCtrlErrorCode[] = {
     HITLS_CERT_KEY_CTRL_ERR_IS_DIGITAL_SIGN_USAGE,
     HITLS_CERT_KEY_CTRL_ERR_IS_KEY_CERT_SIGN_USAGE,
     HITLS_CERT_KEY_CTRL_ERR_IS_KEY_AGREEMENT_USAGE,
+    HITLS_CERT_KEY_CTRL_ERR_GET_PARAM_ID,
+    HITLS_CERT_KEY_CTRL_ERR_IS_DATA_ENC_USAGE,
+    HITLS_CERT_KEY_CTRL_ERR_IS_NON_REPUDIATION_USAGE,
 };
 
 int32_t SAL_CERT_StoreCtrl(HITLS_Config *config, HITLS_CERT_Store *store, HITLS_CERT_CtrlCmd cmd, void *in, void *out)
 {
-    if (config == NULL || store == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return HITLS_NULL_INPUT;
-    }
-
-    CERT_MgrCtx *mgrCtx = config->certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.certStoreCtrl == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_UNREGISTERED_CALLBACK);
-        return HITLS_UNREGISTERED_CALLBACK;
-    }
-
-    int32_t ret = mgrCtx->method.certStoreCtrl(config, store, cmd, in, out);
-    if (ret != HITLS_SUCCESS) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15174, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "cert store ctrl callback error: ret = 0x%x, cmd = %u.", ret, cmd, 0, 0);
-        BSL_ERR_PUSH_ERROR(g_tlsCertCtrlErrorCode[cmd]);
-        return g_tlsCertCtrlErrorCode[cmd];
-    }
-
-    return HITLS_SUCCESS;
+    int32_t ret;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ret = HITLS_X509_Adapt_StoreCtrl(config, store, cmd, in, out);
+#else
+    ret = config->certMgrCtx->method.certStoreCtrl(config, store, cmd, in, out);
+#endif
+    return CheckCertCallBackRetVal("cert store ctrl", ret, BINLOG_ID16094, g_tlsCertCtrlErrorCode[cmd]);
 }
 
 int32_t SAL_CERT_X509Ctrl(HITLS_Config *config, HITLS_CERT_X509 *cert, HITLS_CERT_CtrlCmd cmd, void *in, void *out)
 {
-    if (config == NULL || cert == NULL) {
+    if (cert == NULL) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID16279, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN, "input null", 0, 0, 0, 0);
         BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
         return HITLS_NULL_INPUT;
     }
-
-    CERT_MgrCtx *mgrCtx = config->certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.certCtrl == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_UNREGISTERED_CALLBACK);
-        return HITLS_UNREGISTERED_CALLBACK;
-    }
-
-    int32_t ret = mgrCtx->method.certCtrl(config, cert, cmd, in, out);
-    if (ret != HITLS_SUCCESS) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15173, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "cert ctrl callback error: ret = 0x%x, cmd = %u.", ret, cmd, 0, 0);
-        BSL_ERR_PUSH_ERROR(g_tlsCertCtrlErrorCode[cmd]);
-        return g_tlsCertCtrlErrorCode[cmd];
-    }
-
-    return HITLS_SUCCESS;
+    int32_t ret;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ret = HITLS_X509_Adapt_CertCtrl(config, cert, cmd, in, out);
+#else
+    ret = config->certMgrCtx->method.certCtrl(config, cert, cmd, in, out);
+#endif
+    return CheckCertCallBackRetVal("cert ctrl", ret, BINLOG_ID16096, g_tlsCertCtrlErrorCode[cmd]);
 }
 
 int32_t SAL_CERT_KeyCtrl(HITLS_Config *config, HITLS_CERT_Key *key, HITLS_CERT_CtrlCmd cmd, void *in, void *out)
 {
-    if (config == NULL || key == NULL) {
+    if (key == NULL) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID16280, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN, "input null", 0, 0, 0, 0);
         BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
         return HITLS_NULL_INPUT;
     }
-
-    CERT_MgrCtx *mgrCtx = config->certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.keyCtrl == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_UNREGISTERED_CALLBACK);
-        return HITLS_UNREGISTERED_CALLBACK;
-    }
-
-    int32_t ret = mgrCtx->method.keyCtrl(config, key, cmd, in, out);
-    if (ret != HITLS_SUCCESS) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15172, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "key ctrl callback error: ret = 0x%x, cmd = %u.", ret, cmd, 0, 0);
-        BSL_ERR_PUSH_ERROR(g_tlsCertCtrlErrorCode[cmd]);
-        return g_tlsCertCtrlErrorCode[cmd];
-    }
-
-    return HITLS_SUCCESS;
+    int32_t ret;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ret = HITLS_X509_Adapt_KeyCtrl(config, key, cmd, in, out);
+#else
+    ret = config->certMgrCtx->method.keyCtrl(config, key, cmd, in, out);
+#endif
+    return CheckCertCallBackRetVal("key ctrl", ret, BINLOG_ID16098, g_tlsCertCtrlErrorCode[cmd]);
 }
 
 int32_t SAL_CERT_CreateSign(HITLS_Ctx *ctx, HITLS_CERT_Key *key, CERT_SignParam *signParam)
 {
-    if (ctx == NULL || key == NULL || signParam == NULL) {
+    if (key == NULL) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID16281, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN, "input null", 0, 0, 0, 0);
         BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
         return HITLS_NULL_INPUT;
     }
-
-    CERT_MgrCtx *mgrCtx = ctx->config.tlsConfig.certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.createSign == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_UNREGISTERED_CALLBACK);
-        return HITLS_UNREGISTERED_CALLBACK;
-    }
-
-    int32_t ret = mgrCtx->method.createSign(ctx, key, signParam->signAlgo, signParam->hashAlgo,
-        signParam->data, signParam->dataLen, signParam->sign, &signParam->signLen);
-    if (ret != HITLS_SUCCESS) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15536, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "create signature error: sign algo = %u, hash algo = %u, dataLen = %u, signLen = %u",
-            signParam->signAlgo, signParam->hashAlgo, signParam->dataLen, signParam->signLen);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15962, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "callback ret = 0x%x", ret, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_ERR_CREATE_SIGN);
-        return HITLS_CERT_ERR_CREATE_SIGN;
-    }
-    return HITLS_SUCCESS;
+    int32_t ret;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ret = HITLS_X509_Adapt_CreateSign(ctx, key, signParam->signAlgo, signParam->hashAlgo, signParam->data,
+        signParam->dataLen, signParam->sign, &signParam->signLen);
+#else
+    ret = ctx->config.tlsConfig.certMgrCtx->method.createSign(ctx, key, signParam->signAlgo,
+        signParam->hashAlgo, signParam->data, signParam->dataLen, signParam->sign, &signParam->signLen);
+#endif
+    return CheckCertCallBackRetVal("create signature", ret, BINLOG_ID16103, HITLS_CERT_ERR_CREATE_SIGN);
 }
 
 int32_t SAL_CERT_VerifySign(HITLS_Ctx *ctx, HITLS_CERT_Key *key, CERT_SignParam *signParam)
 {
-    if (key == NULL || ctx == NULL || signParam == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return HITLS_NULL_INPUT;
-    }
-
-    CERT_MgrCtx *mgrCtx = ctx->config.tlsConfig.certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.verifySign == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_UNREGISTERED_CALLBACK);
-        return HITLS_UNREGISTERED_CALLBACK;
-    }
-
-    int32_t ret = mgrCtx->method.verifySign(ctx, key, signParam->signAlgo, signParam->hashAlgo,
-        signParam->data, signParam->dataLen, signParam->sign, signParam->signLen);
-    if (ret != HITLS_SUCCESS) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15964, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "verify signature error: sign algo = %u, hash algo = %u, dataLen = %u, signLen = %u",
-            signParam->signAlgo, signParam->hashAlgo, signParam->dataLen, signParam->signLen);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15969, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "callback ret = 0x%x", ret, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_ERR_VERIFY_SIGN);
-        return HITLS_CERT_ERR_VERIFY_SIGN;
-    }
-    return HITLS_SUCCESS;
+    int32_t ret;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ret = HITLS_X509_Adapt_VerifySign(ctx, key, signParam->signAlgo,
+        signParam->hashAlgo, signParam->data, signParam->dataLen, signParam->sign, signParam->signLen);
+#else
+    ret = ctx->config.tlsConfig.certMgrCtx->method.verifySign(ctx, key, signParam->signAlgo,
+        signParam->hashAlgo, signParam->data, signParam->dataLen, signParam->sign, signParam->signLen);
+#endif
+    return CheckCertCallBackRetVal("verify signature", ret, BINLOG_ID16101, HITLS_CERT_ERR_VERIFY_SIGN);
 }
 
+#if defined(HITLS_TLS_SUITE_KX_RSA) || defined(HITLS_TLS_PROTO_TLCP11)
 int32_t SAL_CERT_KeyEncrypt(HITLS_Ctx *ctx, HITLS_CERT_Key *key, const uint8_t *in, uint32_t inLen,
     uint8_t *out, uint32_t *outLen)
 {
-    CERT_MgrCtx *mgrCtx = ctx->config.tlsConfig.certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.encrypt == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_UNREGISTERED_CALLBACK);
-        return HITLS_UNREGISTERED_CALLBACK;
+    int32_t ret;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ret = HITLS_X509_Adapt_Encrypt(ctx, key, in, inLen, out, outLen);
+#else
+    if (ctx->config.tlsConfig.certMgrCtx->method.encrypt == NULL) {
+        return RETURN_ERROR_NUMBER_PROCESS(HITLS_UNREGISTERED_CALLBACK, BINLOG_ID15333, "unregistered encrypt");
     }
-
-    int32_t ret = mgrCtx->method.encrypt(ctx, key, in, inLen, out, outLen);
-    if (ret != HITLS_SUCCESS) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15059, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "pubkey encrypt error: callback ret = 0x%x.", ret, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_ERR_ENCRYPT);
-        return HITLS_CERT_ERR_ENCRYPT;
-    }
-    return HITLS_SUCCESS;
+    ret = ctx->config.tlsConfig.certMgrCtx->method.encrypt(ctx, key, in, inLen, out, outLen);
+#endif
+    return CheckCertCallBackRetVal("pubkey encrypt", ret, BINLOG_ID15059, HITLS_CERT_ERR_ENCRYPT);
 }
 
 int32_t SAL_CERT_KeyDecrypt(HITLS_Ctx *ctx, HITLS_CERT_Key *key, const uint8_t *in, uint32_t inLen,
     uint8_t *out, uint32_t *outLen)
 {
-    CERT_MgrCtx *mgrCtx = ctx->config.tlsConfig.certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.decrypt == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_UNREGISTERED_CALLBACK);
-        return HITLS_UNREGISTERED_CALLBACK;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    return HITLS_X509_Adapt_Decrypt(ctx, key, in, inLen, out, outLen);
+#else
+    if (ctx->config.tlsConfig.certMgrCtx->method.decrypt == NULL) {
+        return RETURN_ERROR_NUMBER_PROCESS(HITLS_UNREGISTERED_CALLBACK, BINLOG_ID15334, "unregistered decrypt");
     }
-
-    int32_t ret = mgrCtx->method.decrypt(ctx, key, in, inLen, out, outLen);
-    if (ret != HITLS_SUCCESS) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15060, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "private key decrypt error: callback ret = 0x%x.", ret, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_ERR_DECRYPT);
-        return HITLS_CERT_ERR_DECRYPT;
-    }
-    return HITLS_SUCCESS;
+    return ctx->config.tlsConfig.certMgrCtx->method.decrypt(ctx, key, in, inLen, out, outLen);
+#endif
 }
+#endif /* HITLS_TLS_SUITE_KX_RSA || HITLS_TLS_PROTO_TLCP11 */
 
-int32_t SAL_CERT_CheckPrivateKey(const HITLS_Config *config, HITLS_CERT_X509 *cert, HITLS_CERT_Key *key)
+int32_t SAL_CERT_CheckPrivateKey(HITLS_Config *config, HITLS_CERT_X509 *cert, HITLS_CERT_Key *key)
 {
-    if (config == NULL || cert == NULL || key == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_NULL_INPUT);
-        return HITLS_NULL_INPUT;
-    }
-
-    CERT_MgrCtx *mgrCtx = config->certMgrCtx;
-    if (mgrCtx == NULL || mgrCtx->method.checkPrivateKey == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_UNREGISTERED_CALLBACK);
-        return HITLS_UNREGISTERED_CALLBACK;
-    }
-
-    int32_t ret = mgrCtx->method.checkPrivateKey(config, cert, key);
-    if (ret != HITLS_SUCCESS) {
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15061, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "check cert and private key error: callback ret = 0x%x.", ret, 0, 0, 0);
-        BSL_ERR_PUSH_ERROR(HITLS_CERT_ERR_CHECK_CERT_AND_KEY);
-        return HITLS_CERT_ERR_CHECK_CERT_AND_KEY;
-    }
-    return HITLS_SUCCESS;
+    int32_t ret;
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ret = HITLS_X509_Adapt_CheckPrivateKey(config, cert, key);
+#else
+    ret = config->certMgrCtx->method.checkPrivateKey(config, cert, key);
+#endif
+    return CheckCertCallBackRetVal(
+        "check cert and private key", ret, BINLOG_ID15538, HITLS_CERT_ERR_CHECK_CERT_AND_KEY);
 }

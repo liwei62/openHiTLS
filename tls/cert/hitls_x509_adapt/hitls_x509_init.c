@@ -12,15 +12,16 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-
+#include "hitls_build.h"
 #include <stdint.h>
 #include <stddef.h>
 #include "hitls_error.h"
 #include "hitls_cert_reg.h"
-#include "hitls_x509_adapt_local.h"
+#include "hitls_x509_adapt.h"
 
 int32_t HITLS_CertMethodInit(void)
 {
+#ifdef HITLS_TLS_CALLBACK_CERT
     HITLS_CERT_MgrMethod mgr = {
         .certStoreNew = HITLS_X509_Adapt_StoreNew,
         .certStoreDup = HITLS_X509_Adapt_StoreDup,
@@ -43,17 +44,23 @@ int32_t HITLS_CertMethodInit(void)
                    
         .createSign = HITLS_X509_Adapt_CreateSign,
         .verifySign = HITLS_X509_Adapt_VerifySign,
+#if defined(HITLS_TLS_SUITE_KX_RSA) || defined(HITLS_TLS_PROTO_TLCP11)
         .encrypt = HITLS_X509_Adapt_Encrypt,
         .decrypt = HITLS_X509_Adapt_Decrypt,
+#endif
 
         .checkPrivateKey = HITLS_X509_Adapt_CheckPrivateKey,
     };
 
     return HITLS_CERT_RegisterMgrMethod(&mgr);
+#else
+    return HITLS_SUCCESS;
+#endif
 }
 
-int32_t HITLS_CertMethodDeInit(void)
+void HITLS_CertMethodDeinit(void)
 {
+#ifdef HITLS_TLS_CALLBACK_CERT
     HITLS_CERT_DeinitMgrMethod();
-    return HITLS_SUCCESS;
+#endif
 }

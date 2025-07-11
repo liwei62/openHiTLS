@@ -24,7 +24,7 @@
 #include "frame_tls.h"
 #include "frame_io.h"
 #include "frame_link.h"
-
+#include "parse.h"
 #define ENTER_USER_SPECIFY_STATE (HITLS_UIO_FAIL_START + 0xFFFF)
 
 #define READ_BUF_SIZE 18432
@@ -67,6 +67,8 @@ static int32_t STUB_ChangeState(TLS_Ctx *ctx, uint32_t nextState)
     int32_t ret = HITLS_SUCCESS;
     if (g_nextState == nextState) {
         if (g_isClient == ctx->isClient) {
+            HS_CleanMsg(ctx->hsCtx->hsMsg);
+            ctx->hsCtx->hsMsg = NULL;
             ret = HITLS_REC_NORMAL_RECV_BUF_EMPTY;
         }
     }
@@ -93,7 +95,10 @@ static bool StateCompare(FRAME_LinkObj *link, bool isClient, HITLS_HandshakeStat
         }
         // In tls1.3, the server may receive the CCS message in the TRY_RECV_CERTIFICATIONATE phase
         if (state == TRY_RECV_CERTIFICATE){
-            if (link->needStopBeforeRecvCCS || CCS_IsRecv(link->ssl) == true || link->ssl->hsCtx->haveHrr == true ||
+            if (link->needStopBeforeRecvCCS || CCS_IsRecv(link->ssl) == true ||
+#ifdef HITLS_TLS_PROTO_TLS13
+                link->ssl->hsCtx->haveHrr == true ||
+#endif /* HITLS_TLS_PROTO_TLS13 */
                 link->ssl->config.tlsConfig.maxVersion != HITLS_VERSION_TLS13 || isClient == true) {
                 return true;
             }
@@ -215,7 +220,8 @@ int32_t FRAME_CreateRenegotiation(FRAME_LinkObj *linkA, FRAME_LinkObj *linkB)
     }
 
     do {
-        clientRet = HITLS_Write(linkA->ssl, writeBuf, sizeof(writeBuf));
+        uint32_t len = 0;
+        clientRet = HITLS_Write(linkA->ssl, writeBuf, sizeof(writeBuf), &len);
         if (clientRet != HITLS_SUCCESS) {
             ret = clientRet;
             if ((clientRet != HITLS_REC_NORMAL_IO_BUSY) && (clientRet != HITLS_REC_NORMAL_RECV_BUF_EMPTY)) {
@@ -260,5 +266,157 @@ int32_t FRAME_CreateRenegotiation(FRAME_LinkObj *linkA, FRAME_LinkObj *linkB)
     // Prevent infinite loop. No more than 30 messages are exchanged between the client and server during the handshake
     } while (count < 30);
 
+    return ret;
+}
+
+int32_t FRAME_CreateRenegotiationServer(FRAME_LinkObj *server, FRAME_LinkObj *client)
+{
+    int32_t clientRet;
+    int32_t serverRet;
+    int32_t ret;
+    uint32_t count = 0;
+    // renegotiation signal
+    uint8_t readBuf[32] = {0}; // buffer for receive temporary messages, 32 bytes long
+    uint32_t readBufLen = 0;
+
+    if (server->ssl->state != CM_STATE_RENEGOTIATION) {
+        return HITLS_SUCCESS;
+    }
+    do {
+        readBufLen = 0;
+        (void)memset_s(readBuf, sizeof(readBuf), 0, sizeof(readBuf));
+        serverRet = HITLS_Read(server->ssl, readBuf, sizeof(readBuf), &readBufLen);
+        if (serverRet != HITLS_SUCCESS) {
+            ret = serverRet;
+            if ((serverRet != HITLS_REC_NORMAL_IO_BUSY) && (serverRet != HITLS_REC_NORMAL_RECV_BUF_EMPTY)) {
+                break;
+            }
+        }
+
+        ret = FRAME_TrasferMsgBetweenLink(server, client);
+        if (ret != HITLS_SUCCESS) {
+            break;
+        }
+
+        readBufLen = 0;
+        (void)memset_s(readBuf, sizeof(readBuf), 0, sizeof(readBuf));
+        clientRet = HITLS_Read(client->ssl, readBuf, sizeof(readBuf), &readBufLen);
+        if (clientRet != HITLS_SUCCESS) {
+            ret = clientRet;
+            if ((clientRet != HITLS_REC_NORMAL_IO_BUSY) && (clientRet != HITLS_REC_NORMAL_RECV_BUF_EMPTY)) {
+                break;
+            }
+        }
+
+        ret = FRAME_TrasferMsgBetweenLink(client, server);
+        if (ret != HITLS_SUCCESS) {
+            break;
+        }
+
+        // If the connection is set up on both sides, return success
+        if (clientRet == HITLS_REC_NORMAL_RECV_BUF_EMPTY && serverRet == HITLS_REC_NORMAL_RECV_BUF_EMPTY &&
+            server->ssl->state == CM_STATE_TRANSPORTING && client->ssl->state == CM_STATE_TRANSPORTING) {
+            ret = HITLS_SUCCESS;
+            break;
+        }
+
+        count++;
+        ret = HITLS_INTERNAL_EXCEPTION;
+    // Prevent infinite loop. No more than 30 messages are exchanged between the client and server during the handshake
+    } while (count < 30);
+
+    return ret;
+}
+
+int32_t FRAME_CreateRenegotiationState(FRAME_LinkObj *client, FRAME_LinkObj *server, bool isClient, HITLS_HandshakeState state)
+{
+    int32_t clientRet;
+    int32_t serverRet;
+    int32_t ret;
+    uint32_t count = 0;
+    // renegotiation signal
+    uint8_t writeBuf[1] = {1};
+    uint8_t readBuf[32] = {0}; // buffer for receive temporary messages, 32 bytes long
+    uint32_t readBufLen = 0;
+
+    if (client->ssl->state != CM_STATE_RENEGOTIATION) {
+        return HITLS_SUCCESS;
+    }
+
+    g_isClient = isClient;
+    g_nextState = state;
+
+    FuncStubInfo tmpRpInfo = {0};
+    STUB_Init();
+    STUB_Replace(&tmpRpInfo, HS_ChangeState, STUB_ChangeState);
+
+    do {
+        // Check whether the client needs to be stopped. If yes, return success
+        if (StateCompare(client, isClient, state)) {
+            ret = HITLS_SUCCESS;
+            break;
+        }
+        uint32_t len = 0;
+        clientRet = HITLS_Write(client->ssl, writeBuf, sizeof(writeBuf), &len);
+        if (clientRet != HITLS_SUCCESS) {
+            ret = clientRet;
+            if ((clientRet != HITLS_REC_NORMAL_IO_BUSY) && (clientRet != HITLS_REC_NORMAL_RECV_BUF_EMPTY)) {
+                break;
+            }
+        }
+
+        ret = FRAME_TrasferMsgBetweenLink(client, server);
+        if (ret != HITLS_SUCCESS) {
+            break;
+        }
+
+        // Check whether the server needs to be stopped. If yes, return success
+        if (StateCompare(server, isClient, state)) {
+            ret = HITLS_SUCCESS;
+            break;
+        }
+
+        readBufLen = 0;
+        (void)memset_s(readBuf, sizeof(readBuf), 0, sizeof(readBuf));
+        serverRet = HITLS_Read(server->ssl, readBuf, sizeof(readBuf), &readBufLen);
+        if (serverRet != HITLS_SUCCESS) {
+            ret = serverRet;
+            if ((serverRet != HITLS_REC_NORMAL_IO_BUSY) && (serverRet != HITLS_REC_NORMAL_RECV_BUF_EMPTY)) {
+                break;
+            }
+        }
+
+        ret = FRAME_TrasferMsgBetweenLink(server, client);
+        if (ret != HITLS_SUCCESS) {
+            break;
+        }
+
+        // If the connection is set up on both sides, return success
+        if (clientRet == HITLS_SUCCESS && serverRet == HITLS_SUCCESS &&
+            client->ssl->state == CM_STATE_TRANSPORTING && server->ssl->state == CM_STATE_TRANSPORTING) {
+            if ((readBufLen != sizeof(writeBuf)) ||
+                (memcmp(writeBuf, readBuf, readBufLen) != 0)) {
+                ret = HITLS_INTERNAL_EXCEPTION;
+            } else {
+                ret = HITLS_SUCCESS;
+            }
+            break;
+        }
+
+        count++;
+        ret = HITLS_INTERNAL_EXCEPTION;
+    // Prevent infinite loop. No more than 30 messages are exchanged between the client and server during the handshake
+    } while (count < 30);
+
+    //Check whether the hsCtx status meets the expectation. If hsCtx is destructed, HITLS_INTERNAL_EXCEPTION is returned
+    if (state != HS_STATE_BUTT) {
+        FRAME_LinkObj *point = (isClient) ? (client) : (server);
+        if (point->ssl->hsCtx == NULL) {
+            ret = HITLS_INTERNAL_EXCEPTION;
+        } else if (point->ssl->hsCtx->state != state) {
+            ret = HITLS_INTERNAL_EXCEPTION;
+        }
+    }
+    STUB_Reset(&tmpRpInfo);
     return ret;
 }

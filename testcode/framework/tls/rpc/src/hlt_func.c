@@ -30,6 +30,7 @@
 #include "hitls_func.h"
 #include "sctp_channel.h"
 #include "tcp_channel.h"
+#include "udp_channel.h"
 #include "socket_common.h"
 #include "cert_callback.h"
 #include "sctp_channel.h"
@@ -66,6 +67,33 @@ void* HLT_TlsNewCtx(TLS_VERSION tlsVersion)
     return ctx;
 }
 
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+void* HLT_TlsProviderNewCtx(char *providerPath, char (*providerNames)[MAX_PROVIDER_NAME_LEN], int *providerLibFmts,
+    int providerCnt, char *attrName, TLS_VERSION tlsVersion)
+{
+    int ret;
+    void *ctx = NULL;
+    Process *process;
+    process = GetProcess();
+    switch (process->tlsType) {
+        case HITLS:
+            ctx = HitlsProviderNewCtx(providerPath, providerNames, providerLibFmts, providerCnt,
+                attrName, tlsVersion);
+            break;
+        default:
+            ctx = NULL;
+    }
+    if ((process->remoteFlag == 0) && (ctx != NULL)) {
+        // If the value is LocalProcess, insert it to the CTX linked list.
+        ret =  InsertCtxToList(ctx);
+        if (ret == ERROR) {
+            LOG_ERROR("InsertCtxToList ERROR");
+            return NULL;
+        }
+    }
+    return ctx;
+}
+#endif
 void* HLT_TlsNewSsl(void *ctx)
 {
     int ret;
@@ -175,7 +203,7 @@ int HLT_TlsAcceptBlock(void *ssl)
     process = GetProcess();
     switch (process->tlsType) {
         case HITLS:
-            return HitlsAccept(ssl);
+            return *(int *)HitlsAccept(ssl);
         default:
             return ERROR;
     }
@@ -189,7 +217,7 @@ int HLT_GetTlsAcceptResultFromId(unsigned long int threadId)
 
 int HLT_GetTlsAcceptResult(HLT_Tls_Res* tlsRes)
 {
-    int ret;
+    static int ret;
     if (tlsRes->acceptId <= 0) {
         LOG_ERROR("This Res Has Not acceptId");
         return ERROR;
@@ -199,8 +227,14 @@ int HLT_GetTlsAcceptResult(HLT_Tls_Res* tlsRes)
         ret = HLT_RpcGetTlsAcceptResult(tlsRes->acceptId);
     } else {
         // Indicates that the local process accepts the request.
-        pthread_join(tlsRes->acceptId, NULL);
-        return SUCCESS;
+        int *tmp = NULL;
+        pthread_join(tlsRes->acceptId, (void**)&tmp);
+        if (tmp == NULL) {
+            return ERROR;
+        }
+        ret = *tmp;
+        tlsRes->acceptId = 0;
+        return ret;
     }
     tlsRes->acceptId = 0;
     return ret;
@@ -261,6 +295,7 @@ int HLT_TlsRenegotiate(void *ssl)
 
 int HLT_TlsVerifyClientPostHandshake(void *ssl)
 {
+#ifdef HITLS_TLS_FEATURE_PHA
     Process *process;
     process = GetProcess();
     switch (process->tlsType) {
@@ -268,6 +303,10 @@ int HLT_TlsVerifyClientPostHandshake(void *ssl)
         default:
             return ERROR;
     }
+#else
+    (void)ssl;
+#endif
+    return ERROR;
 }
 
 int HLT_TlsClose(void *ssl)
@@ -371,8 +410,12 @@ int RunDataChannelBind(void *param)
     LOG_DEBUG("RunDataChannelBind Ing...\n");
     DataChannelParam *channelParam = (DataChannelParam*)param;
     switch (channelParam->type) {
-        case SCTP: sockFd = SctpBind(channelParam->port); break;
+#ifdef HITLS_BSL_UIO_TCP
         case TCP: sockFd = TcpBind(channelParam->port); break;
+#endif
+#ifdef HITLS_BSL_UIO_UDP
+        case UDP: sockFd = UdpBind(channelParam->port); break;
+#endif
         default:
             return ERROR;
     }
@@ -391,11 +434,15 @@ int RunDataChannelAccept(void *param)
     LOG_DEBUG("RunDataChannelAccept Ing...\n");
     DataChannelParam *channelParam = (DataChannelParam *)param;
     switch (channelParam->type) {
-        case SCTP:
-            sockFd = SctpAccept(channelParam->ip, channelParam->bindFd, channelParam->isBlock);
-            break;
+#ifdef HITLS_BSL_UIO_TCP
         case TCP:
             sockFd = TcpAccept(channelParam->ip, channelParam->bindFd, channelParam->isBlock, true);
+            break;
+#endif
+#ifdef HITLS_BSL_UIO_UDP
+        case UDP:
+            sockFd = UdpAccept(channelParam->ip, channelParam->bindFd, channelParam->isBlock, false);
+#endif
             break;
         default:
             return ERROR;
@@ -423,8 +470,12 @@ int HLT_DataChannelBind(DataChannelParam *channelParam)
 int HLT_DataChannelConnect(DataChannelParam *dstChannelParam)
 {
     switch (dstChannelParam->type) {
-        case SCTP: return SctpConnect(dstChannelParam->ip, dstChannelParam->port, dstChannelParam->isBlock);
+#ifdef HITLS_BSL_UIO_TCP
         case TCP: return TcpConnect(dstChannelParam->ip, dstChannelParam->port);
+#endif
+#ifdef HITLS_BSL_UIO_UDP
+        case UDP: return UdpConnect(dstChannelParam->ip, dstChannelParam->port);
+#endif
         default:
             return ERROR;
     }
@@ -494,8 +545,12 @@ HLT_FD HLT_CreateDataChannel(HLT_Process *process1, HLT_Process *process2, DataC
 void HLT_CloseFd(int fd, int linkType)
 {
     switch (linkType) {
+#ifdef HITLS_BSL_UIO_TCP
         case TCP: TcpClose(fd); break;
-        case SCTP: SctpClose(fd); break;
+#endif
+#ifdef HITLS_BSL_UIO_UDP
+        case UDP: UdpClose(fd); break;
+#endif
         default:
             /* Unknown fd type */
             break;
@@ -505,21 +560,18 @@ void HLT_CloseFd(int fd, int linkType)
 HLT_Ctx_Config* HLT_NewCtxConfigTLCP(char *setFile, const char *key, bool isClient)
 {
     (void)setFile;
-    HLT_Ctx_Config *ctxConfig;
     Process *localProcess;
 
-    ctxConfig = (HLT_Ctx_Config*)malloc(sizeof(HLT_Ctx_Config));
+    HLT_Ctx_Config *ctxConfig = (HLT_Ctx_Config*)calloc(sizeof(HLT_Ctx_Config), 1u);
     if (ctxConfig == NULL) {
         return NULL;
     }
-
-    (void)memset_s(ctxConfig, sizeof(HLT_Ctx_Config), 0, sizeof(HLT_Ctx_Config));
     ctxConfig->isSupportRenegotiation = false;
+    ctxConfig->allowClientRenegotiate = false;
+    ctxConfig->allowLegacyRenegotiate = false;
     ctxConfig->isSupportClientVerify = false;
     ctxConfig->isSupportNoClientCert = false;
     ctxConfig->isSupportExtendMasterSecret = false;
-    ctxConfig->minVersion = HITLS_VERSION_TLCP11;
-    ctxConfig->maxVersion = HITLS_VERSION_TLCP11;
     ctxConfig->isClient = isClient;
     ctxConfig->setSessionCache = 2;
     HLT_SetGroups(ctxConfig, "NULL");
@@ -542,7 +594,6 @@ HLT_Ctx_Config* HLT_NewCtxConfigTLCP(char *setFile, const char *key, bool isClie
         ctxConfig = NULL;
         return NULL;
     }
-
     // Store CTX configuration resources and release them later.
     localProcess = GetProcess();
     localProcess->tlsResArray[localProcess->tlsResNum] = ctxConfig;
@@ -564,20 +615,24 @@ HLT_Ctx_Config* HLT_NewCtxConfig(char *setFile, const char *key)
     (void)memset_s(ctxConfig, sizeof(HLT_Ctx_Config), 0, sizeof(HLT_Ctx_Config));
     ctxConfig->needCheckKeyUsage = false;
     ctxConfig->isSupportRenegotiation = false;
+    ctxConfig->allowClientRenegotiate = false;
+    ctxConfig->allowLegacyRenegotiate = false;
     ctxConfig->isSupportClientVerify = false;
     ctxConfig->isSupportNoClientCert = false;
     ctxConfig->isSupportVerifyNone = false;
+    ctxConfig->isSupportPostHandshakeAuth = false;
     ctxConfig->isSupportExtendMasterSecret = true;
     ctxConfig->isSupportSessionTicket = false;
     ctxConfig->isSupportDhAuto = true;
-	ctxConfig->isEncryptThenMac = false;
+	ctxConfig->isEncryptThenMac = true;
     ctxConfig->keyExchMode = TLS13_KE_MODE_PSK_WITH_DHE;
     ctxConfig->setSessionCache = HITLS_SESS_CACHE_SERVER;
     ctxConfig->mtu = 0;
     ctxConfig->infoCb = NULL;
-	ctxConfig->securitylevel = HITLS_DEFAULT_SECURITY_LEVEL;
+	ctxConfig->securitylevel = HITLS_SECURITY_LEVEL_ZERO;
 	ctxConfig->SupportType = 0;
-
+    ctxConfig->readAhead = 1;
+    ctxConfig->emptyRecordsNum = 32;
     HLT_SetGroups(ctxConfig, "NULL");
     HLT_SetCipherSuites(ctxConfig, "NULL");
     HLT_SetTls13CipherSuites(ctxConfig, "NULL");
@@ -603,7 +658,6 @@ HLT_Ctx_Config* HLT_NewCtxConfig(char *setFile, const char *key)
         ctxConfig = NULL;
         return NULL;
     }
-
     // Store CTX configuration resources and release them later.
     localProcess = GetProcess();
     localProcess->tlsResArray[localProcess->tlsResNum] = ctxConfig;
@@ -719,20 +773,24 @@ static int LocalProcessTlsInit(HLT_Process *process, TLS_VERSION tlsVersion,
                                HLT_Ctx_Config *ctxConfig, HLT_Ssl_Config *sslConfig, HLT_Tls_Res *tlsRes)
 {
     void *ctx, *ssl;
-
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ctx = HLT_TlsProviderNewCtx(ctxConfig->providerPath, ctxConfig->providerNames, ctxConfig->providerLibFmts,
+        ctxConfig->providerCnt, ctxConfig->attrName, tlsVersion);
+#else
     ctx = HLT_TlsNewCtx(tlsVersion);
+#endif
     if (ctx == NULL) {
-        LOG_ERROR("HLT_TlsNewCtx ERROR");
-        goto ERR;
+        LOG_ERROR("HLT_TlsNewCtx or HLT_TlsProviderNewCtx ERROR");
+        return ERROR;
     }
     if (HLT_TlsSetCtx(ctx, ctxConfig) != SUCCESS) {
         LOG_ERROR("HLT_TlsSetCtx ERROR");
-        goto ERR;
+        return ERROR;
     }
     ssl = HLT_TlsNewSsl(ctx);
     if (ssl == NULL) {
         LOG_ERROR("HLT_TlsNewSsl ERROR");
-        goto ERR;
+        return ERROR;
     }
     // When FD is 0, the default configuration is used.
     if (sslConfig->sockFd == 0) {
@@ -742,12 +800,12 @@ static int LocalProcessTlsInit(HLT_Process *process, TLS_VERSION tlsVersion,
     }
     if (HLT_TlsSetSsl(ssl, sslConfig) != SUCCESS) {
         LOG_ERROR("HLT_TlsSetSsl ERROR");
-        goto ERR;
+        return ERROR;
     }
     if (ctxConfig->mtu > 0) {
         if (HLT_TlsSetMtu(ssl, ctxConfig->mtu) != SUCCESS) {
             LOG_ERROR("HLT_TlsSetMtu ERROR");
-            goto ERR;
+            return ERROR;
         }
     }
     tlsRes->ctx = ctx;
@@ -755,8 +813,6 @@ static int LocalProcessTlsInit(HLT_Process *process, TLS_VERSION tlsVersion,
     tlsRes->ctxId = -1; // -1 indicates that the field is discarded.
     tlsRes->sslId = -1; // -1 indicates that the field is discarded.
     return SUCCESS;
-ERR:
-    return ERROR;
 }
 
 static int RemoteProcessTlsInit(HLT_Process *process, TLS_VERSION tlsVersion,
@@ -764,20 +820,24 @@ static int RemoteProcessTlsInit(HLT_Process *process, TLS_VERSION tlsVersion,
 {
     int ctxId;
     int sslId;
-
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    ctxId = HLT_RpcProviderTlsNewCtx(process, tlsVersion, ctxConfig->isClient, ctxConfig->providerPath,
+        ctxConfig->providerNames, ctxConfig->providerLibFmts, ctxConfig->providerCnt, ctxConfig->attrName);
+#else
     ctxId = HLT_RpcTlsNewCtx(process, tlsVersion, ctxConfig->isClient);
+#endif
     if (ctxId < 0) {
         LOG_ERROR("HLT_RpcTlsNewCtx ERROR");
-        goto ERR;
+        return ERROR;
     }
     if (HLT_RpcTlsSetCtx(process, ctxId, ctxConfig) != SUCCESS) {
         LOG_ERROR("HLT_RpcTlsSetCtx ERROR");
-        goto ERR;
+        return ERROR;
     }
     sslId = HLT_RpcTlsNewSsl(process, ctxId);
     if (sslId < 0) {
         LOG_ERROR("HLT_RpcTlsNewSsl ERROR");
-        goto ERR;
+        return ERROR;
     }
     // When FD is 0, the default configuration is used.
     if (sslConfig->sockFd == 0) {
@@ -787,12 +847,12 @@ static int RemoteProcessTlsInit(HLT_Process *process, TLS_VERSION tlsVersion,
     }
     if (HLT_RpcTlsSetSsl(process, sslId, sslConfig) != SUCCESS) {
         LOG_ERROR("HLT_RpcTlsSetSsl ERROR");
-        goto ERR;
+        return ERROR;
     }
     if (ctxConfig->mtu > 0) {
         if (HLT_RpcTlsSetMtu(process, sslId, ctxConfig->mtu) != SUCCESS) {
             LOG_ERROR("HLT_RpcTlsSetMtu ERROR");
-            goto ERR;
+            return ERROR;
         }
     }
 
@@ -801,8 +861,6 @@ static int RemoteProcessTlsInit(HLT_Process *process, TLS_VERSION tlsVersion,
     tlsRes->ctxId = ctxId;
     tlsRes->sslId = sslId;
     return SUCCESS;
-ERR:
-    return ERROR;
 }
 
 HLT_Tls_Res *HLT_ProcessTlsInit(HLT_Process *process, TLS_VERSION tlsVersion,
@@ -812,7 +870,7 @@ HLT_Tls_Res *HLT_ProcessTlsInit(HLT_Process *process, TLS_VERSION tlsVersion,
     HLT_Tls_Res *tlsRes = (HLT_Tls_Res*)malloc(sizeof(HLT_Tls_Res));
     if (tlsRes == NULL) {
         LOG_ERROR("Malloc TlsRes ERROR");
-        goto ERR;
+        return NULL;
     }
 
     // Checking Configuration Parameters
@@ -908,7 +966,7 @@ HLT_Tls_Res* HLT_ProcessTlsConnect(HLT_Process *process, TLS_VERSION tlsVersion,
     HLT_Tls_Res *tlsRes = (HLT_Tls_Res*)malloc(sizeof(HLT_Tls_Res));
     if (tlsRes == NULL) {
         LOG_ERROR("Malloc TlsRes ERROR");
-        goto ERR;
+        return NULL;
     }
     (void)memset_s(tlsRes, sizeof(HLT_Tls_Res), 0, sizeof(HLT_Tls_Res));
     // Checking Configuration Parameters
@@ -1002,13 +1060,27 @@ int HLT_SetRenegotiationSupport(HLT_Ctx_Config *ctxConfig, bool support)
     return SUCCESS;
 }
 
-int32_t HLT_SetNoSecRenegotiationCb(HLT_Ctx_Config *ctxConfig, char* NoSecRenegotiationCb)
+int HLT_SetLegacyRenegotiateSupport(HLT_Ctx_Config *ctxConfig, bool support)
 {
-    (void)memset_s(ctxConfig->noSecRenegotiationCb, MAX_NO_RENEGOTIATIONCB_LEN, 0, MAX_NO_RENEGOTIATIONCB_LEN);
-    if (strcpy_s(ctxConfig->noSecRenegotiationCb, MAX_NO_RENEGOTIATIONCB_LEN, NoSecRenegotiationCb) != EOK) {
-        LOG_ERROR("HLT_SetNoSecRenegotiationCb failed.");
-        return -1;
-    }
+    ctxConfig->allowLegacyRenegotiate = support;
+    return SUCCESS;
+}
+
+int HLT_SetClientRenegotiateSupport(HLT_Ctx_Config *ctxConfig, bool support)
+{
+    ctxConfig->allowClientRenegotiate = support;
+    return SUCCESS;
+}
+
+int HLT_SetEmptyRecordsNum(HLT_Ctx_Config *ctxConfig, uint32_t emptyNum)
+{
+    ctxConfig->emptyRecordsNum = emptyNum;
+    return SUCCESS;
+}
+
+int HLT_SetEncryptThenMac(HLT_Ctx_Config *ctxConfig, int support)
+{
+    ctxConfig->isEncryptThenMac = support;
     return SUCCESS;
 }
 
@@ -1042,6 +1114,12 @@ int HLT_SetExtenedMasterSecretSupport(HLT_Ctx_Config *ctxConfig, bool support)
     return SUCCESS;
 }
 
+int HLT_SetModeSupport(HLT_Ctx_Config *ctxConfig, uint32_t mode)
+{
+    ctxConfig->modeSupport = mode;
+    return SUCCESS;
+}
+
 int HLT_SetCipherSuites(HLT_Ctx_Config *ctxConfig, const char *cipherSuites)
 {
     int ret;
@@ -1049,6 +1127,34 @@ int HLT_SetCipherSuites(HLT_Ctx_Config *ctxConfig, const char *cipherSuites)
     ret = sprintf_s(ctxConfig->cipherSuites, sizeof(ctxConfig->cipherSuites), cipherSuites);
     if (ret <= 0) {
         return ERROR;
+    }
+    return SUCCESS;
+}
+
+int HLT_SetProviderPath(HLT_Ctx_Config *ctxConfig, char *providerPath)
+{
+    if (strcpy_s(ctxConfig->providerPath, sizeof(ctxConfig->providerPath), providerPath) != EOK) {
+        return ERROR;
+    }
+    return SUCCESS;
+}
+
+int HLT_SetProviderAttrName(HLT_Ctx_Config *ctxConfig, char *attrName)
+{
+    if (strcpy_s(ctxConfig->attrName, sizeof(ctxConfig->attrName), attrName) != EOK) {
+        return ERROR;
+    }
+    return SUCCESS;
+}
+
+int HLT_AddProviderInfo(HLT_Ctx_Config *ctxConfig, char *providerName, int providerLibFmt)
+{
+    if (providerName != NULL) {
+        if (strcpy_s(ctxConfig->providerNames[ctxConfig->providerCnt], MAX_PROVIDER_NAME_LEN, providerName) != EOK) {
+            return ERROR;
+        }
+        ctxConfig->providerLibFmts[ctxConfig->providerCnt] = providerLibFmt;
+        ctxConfig->providerCnt += 1;
     }
     return SUCCESS;
 }
@@ -1270,6 +1376,21 @@ int HLT_SetAlpnProtosSelectCb(HLT_Ctx_Config *ctxConfig, char *callback, char *u
     return SUCCESS;
 }
 
+
+int HLT_SetClientHelloCb(HLT_Ctx_Config *ctxConfig, HITLS_ClientHelloCb callback, void *arg)
+{
+    ctxConfig->clientHelloCb = callback;
+    ctxConfig->clientHelloArg = arg;
+    return SUCCESS;
+}
+
+int HLT_SetCertCb(HLT_Ctx_Config *ctxConfig, HITLS_CertCb certCb, void *arg)
+{
+    ctxConfig->certCb = certCb;
+    ctxConfig->certArg = arg;
+    return SUCCESS;
+}
+
 int HLT_SetFrameHandle(HLT_FrameHandle *frameHandle)
 {
     return SetFrameHandle(frameHandle);
@@ -1280,22 +1401,17 @@ void HLT_CleanFrameHandle(void)
     CleanFrameHandle();
 }
 
-#define SCTP_AUTH_FILE_PATH "/proc/sys/net/sctp/auth_enable"
-#define SCTP_AUTH_ENABLE "echo 1 > /proc/sys/net/sctp/auth_enable"
-#define SCTP_FLAG_BUFF 10
-
 bool IsEnableSctpAuth(void)
 {
-    system(SCTP_AUTH_ENABLE);
-    char buf[SCTP_FLAG_BUFF] = { 0 };
-    FILE* file = fopen(SCTP_AUTH_FILE_PATH, "r+");
-    if (file == NULL) {
-        return false;
-    }
-    (void)fgets(buf, SCTP_FLAG_BUFF, file);
-    fclose(file);
-    if (strcmp(buf, "1") == 0) {
-        return true;
-    }
     return false;
+}
+
+void HLT_ConfigTimeOut(const char* timeout)
+{
+    setenv("SSL_TIMEOUT", timeout, 1);
+}
+
+void HLT_UnsetTimeOut()
+{
+    unsetenv("SSL_TIMEOUT");
 }

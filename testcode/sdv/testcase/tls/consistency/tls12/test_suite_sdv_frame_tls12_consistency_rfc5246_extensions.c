@@ -35,6 +35,7 @@
 #include "hs_msg.h"
 #include "hs_extensions.h"
 #include "frame_msg.h"
+#include "stub_crypt.h"
 /* END_HEADER */
 #define BUF_TOOLONG_LEN ((1 << 14) + 1)
 
@@ -157,11 +158,12 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_MSGLENGTH_TOOLONG_TC001(void)
     ASSERT_EQ(HITLS_Accept(testInfo.server->ssl), HITLS_REC_RECORD_OVERFLOW);
 
     ASSERT_TRUE(testInfo.server->ssl->hsCtx->state == TRY_RECV_CERTIFICATE);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
     FRAME_FreeLink(testInfo.server);
+    FRAME_DeRegCryptMethod();
 }
 /* END_CASE */
 
@@ -227,11 +229,12 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_MSGLENGTH_TOOLONG_TC002(void)
     ASSERT_EQ(HITLS_Connect(testInfo.client->ssl), HITLS_REC_RECORD_OVERFLOW);
 
     ASSERT_TRUE(testInfo.client->ssl->hsCtx->state == TRY_RECV_CERTIFICATE);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
     FRAME_FreeLink(testInfo.server);
+    FRAME_DeRegCryptMethod();
 }
 /* END_CASE */
 
@@ -289,11 +292,12 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_MSGLENGTH_TOOLONG_TC003(void)
     ASSERT_TRUE(testInfo.server->ssl->hsCtx->state == TRY_RECV_CERTIFICATE_VERIFY);
     bool isCcsRecv = testInfo.server->ssl->method.isRecvCCS(testInfo.server->ssl);
     ASSERT_TRUE(isCcsRecv == false);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
     FRAME_FreeLink(testInfo.server);
+    FRAME_DeRegCryptMethod();
 }
 /* END_CASE */
 
@@ -350,11 +354,12 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_MSGLENGTH_TOOLONG_TC004(void)
     ASSERT_EQ(testInfo.client->ssl->hsCtx->state, TRY_RECV_NEW_SESSION_TICKET);
     bool isCcsRecv = testInfo.client->ssl->method.isRecvCCS(testInfo.client->ssl);
     ASSERT_TRUE(isCcsRecv == false);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType1, &frameMsg1);
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
     FRAME_FreeLink(testInfo.server);
+    FRAME_DeRegCryptMethod();
 }
 /* END_CASE */
 
@@ -478,12 +483,13 @@ void UT_TLS_TLS12_RFC7627_CONSISTENCY_EXTENDED_MASTER_SECRET_TC001(void)
     testInfo.state = HS_STATE_BUTT;
     ASSERT_TRUE(DefaultCfgStatusPark1(&testInfo) == HITLS_SUCCESS);
 
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     FRAME_CleanMsg(&frameType1, &frameMsg1);
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
     FRAME_FreeLink(testInfo.server);
+    FRAME_DeRegCryptMethod();
 }
 /* END_CASE */
 
@@ -554,7 +560,7 @@ void UT_TLS_TLS12_RFC7627_CONSISTENCY_EXTENDED_MASTER_SECRET_TC002(void)
 
     ASSERT_EQ(FRAME_CreateConnection(client, server, true, HS_STATE_BUTT) , HITLS_SUCCESS);
 
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     FRAME_CleanMsg(&frameType1, &frameMsg1);
     HITLS_CFG_FreeConfig(c_config);
@@ -628,18 +634,15 @@ void UT_TLS_TLS12_RFC7627_CONSISTENCY_EXTENDED_MASTER_SECRET_TC004(void)
     testInfo.state = HS_STATE_BUTT;
     ASSERT_TRUE(DefaultCfgStatusPark(&testInfo) == HITLS_SUCCESS);
 
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     FRAME_CleanMsg(&frameType1, &frameMsg1);
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
     FRAME_FreeLink(testInfo.server);
+    FRAME_DeRegCryptMethod();
 }
 /* END_CASE */
-
-
-
-
 
 int32_t StatusPark2(HandshakeTestInfo *testInfo)
 {

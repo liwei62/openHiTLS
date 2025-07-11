@@ -23,7 +23,7 @@
 #include "crypt_eal_rand.h"
 #include "securec.h"
 #include "crypt_util_rand.h"
-#include "crypt_encode.h"
+#include "crypt_encode_internal.h"
 #include "crypt_dsa.h"
 
 #define ERR_BAD_RAND 1
@@ -35,6 +35,16 @@ uint32_t g_RandBufLen = 0;
 
 int32_t RandFunc(uint8_t *randNum, uint32_t randLen)
 {
+    for (uint32_t i = 0; i < randLen; i++) {
+        randNum[i] = (uint8_t)(rand() % UINT8_MAX_NUM);
+    }
+
+    return 0;
+}
+
+int32_t RandFuncEx(void *libCtx, uint8_t *randNum, uint32_t randLen)
+{
+    (void)libCtx;
     for (uint32_t i = 0; i < randLen; i++) {
         randNum[i] = (uint8_t)(rand() % UINT8_MAX_NUM);
     }
@@ -56,9 +66,19 @@ int32_t FakeRandFunc(uint8_t *randNum, uint32_t randLen)
     return memcpy_s(randNum, randLen, g_RandOutput, randLen);
 }
 
-int32_t STUB_RandRangeK(BN_BigNum *r, const BN_BigNum *p)
+int32_t FakeRandFuncEx(void *libCtx, uint8_t *randNum, uint32_t randLen)
+{
+    (void)libCtx;
+    if (randLen > RAND_BUF_LEN) {
+        return ERR_BAD_RAND;
+    }
+    return memcpy_s(randNum, randLen, g_RandOutput, randLen);
+}
+
+int32_t STUB_RandRangeK(void *libCtx, BN_BigNum *r, const BN_BigNum *p)
 {
     (void)p;
+    (void)libCtx;
     BN_Bin2Bn(r, g_RandOutput, g_RandBufLen);
     return CRYPT_SUCCESS;
 }

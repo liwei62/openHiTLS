@@ -16,7 +16,20 @@
 #ifndef HITLS_BUILD_H
 #define HITLS_BUILD_H
 
-#include "hitls_config_layer.h"
+#ifdef HITLS_TLS
+#include "hitls_config_layer_tls.h"
+#endif
+
+#ifdef HITLS_PKI
+#include "hitls_config_layer_pki.h"
+#endif
+
+#ifdef HITLS_CRYPTO
+#include "hitls_config_layer_crypto.h"
+#endif
+
+#include "hitls_config_layer_bsl.h"
+
 #include "hitls_config_check.h"
 
 #endif /* HITLS_BUILD_H */

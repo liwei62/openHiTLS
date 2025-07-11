@@ -29,10 +29,14 @@
 #include "alert.h"
 #include "bsl_list.h"
 #include "app_ctx.h"
+#include "hs_kx.c"
+#include "common_func.h"
+#include "stub_crypt.h"
 /* END_HEADER */
 
 #define g_uiPort 45678
 
+#define PREMASTERSECRETLEN 1534
 
 /* @
 * @test  UT_TLS_TLS12_RFC5246_CONSISTENCY_HANDSHAKE_SEND_CERTFICATE_TC001 rfc 5246 table row 51
@@ -84,11 +88,12 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_HANDSHAKE_SEND_CERTFICATE_TC001(void)
 
     ASSERT_TRUE(testInfo.server->ssl->hsCtx->state == TRY_RECV_CERTIFICATE);
 
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
     FRAME_FreeLink(testInfo.server);
+    FRAME_DeRegCryptMethod();
 }
 /* END_CASE */
 
@@ -136,7 +141,7 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_SIGNATION_NOT_SUITABLE_CERT_TC002(void)
 
 
     ASSERT_EQ(FRAME_CreateConnection(client, server, true, HS_STATE_BUTT), HITLS_CERT_ERR_VERIFY_CERT_CHAIN);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -180,7 +185,7 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_CERTFICATE_VERITY_FAIL_TC003(void)
     ASSERT_TRUE(server != NULL);
 
     ASSERT_EQ(FRAME_CreateConnection(client, server, true, HS_STATE_BUTT), HITLS_CERT_ERR_VERIFY_CERT_CHAIN);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -219,7 +224,7 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_NEGOTIATE_SIGNATION_FAIL_TC001(void)
     ASSERT_TRUE(HITLS_SetSigalgsList(client->ssl, signAlgs, signAlgsSize) == HITLS_SUCCESS);
 
     ASSERT_EQ(FRAME_CreateConnection(client, server, true, HS_STATE_BUTT), HITLS_MSG_HANDLE_CIPHER_SUITE_ERR);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -272,7 +277,7 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_SIGNATION_NOT_SUITABLE_CERT_TC001(void)
     ASSERT_TRUE(server != NULL);
 
     ASSERT_EQ(FRAME_CreateConnection(client, server, true, HS_STATE_BUTT), HITLS_CERT_ERR_VERIFY_CERT_CHAIN);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -332,7 +337,7 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_CERTFICATE_VERITY_FAIL_TC004(void)
     FRAME_CleanMsg(&frameType, &frameMsg);
     memset_s(&frameMsg, sizeof(frameMsg), 0, sizeof(frameMsg));
     ASSERT_EQ(FRAME_CreateConnection(client, server, true, HS_STATE_BUTT), HITLS_PARSE_VERIFY_SIGN_FAIL);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
@@ -391,7 +396,7 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_DECRYPT_FAIL_TC005(void)
     ASSERT_EQ(alertInfo.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alertInfo.description, ALERT_BAD_RECORD_MAC);
 
-exit:
+EXIT:
 
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
@@ -421,7 +426,7 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_KEYUSAGE_CERT_TC003(void)
     ASSERT_TRUE(server != NULL);
     ASSERT_EQ(FRAME_CreateConnection(client, server, true, HS_STATE_BUTT), HITLS_SUCCESS);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -448,7 +453,7 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_RENEGOTIATION_UNSUPPORTED_TC001()
     ASSERT_TRUE(client != NULL);
     server = FRAME_CreateLink(config, BSL_UIO_TCP);
     ASSERT_TRUE(server != NULL);
-
+    HITLS_SetClientRenegotiateSupport(server->ssl, true);
     ASSERT_TRUE(FRAME_CreateConnection(client, server, false, HS_STATE_BUTT) == HITLS_SUCCESS);
     ASSERT_TRUE(server->ssl->state == CM_STATE_TRANSPORTING);
     ASSERT_TRUE(client->ssl->state == CM_STATE_TRANSPORTING);
@@ -464,84 +469,177 @@ void UT_TLS_TLS12_RFC5246_CONSISTENCY_RENEGOTIATION_UNSUPPORTED_TC001()
     uint8_t readBuf[READ_BUF_SIZE] = {0};
     uint32_t readLen = 0;
     ASSERT_EQ(HITLS_Read(server->ssl, readBuf, READ_BUF_SIZE, &readLen), HITLS_REC_NORMAL_RECV_BUF_EMPTY);
-    // Send a warning alert and ALERT_NO_RENEGOTIATION message. After receiving the message, the peer end changes the status to CM_STATE_TRANSPORTING.
+    // Send a warning alert and ALERT_NO_RENEGOTIATION message. After receiving the message, the peer send fatal alert.
     ASSERT_TRUE(FRAME_TrasferMsgBetweenLink(server, client) == HITLS_SUCCESS);
-    ASSERT_TRUE(HITLS_Connect(client->ssl) == HITLS_SUCCESS);
-    ASSERT_EQ(client->ssl->state, CM_STATE_TRANSPORTING);
+    ASSERT_EQ(HITLS_Connect(client->ssl), HITLS_REC_NORMAL_RECV_UNEXPECT_MSG);
+    ASSERT_EQ(client->ssl->state, CM_STATE_ALERTED);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
 }
 /* END_CASE */
 
-int32_t RecParseInnerPlaintext(TLS_Ctx *ctx, const uint8_t *text, uint32_t *textLen, uint8_t *recType);
-
-int32_t STUB_RecParseInnerPlaintext(TLS_Ctx *ctx, const uint8_t *text, uint32_t *textLen, uint8_t *recType)
+static int32_t Stub_GenPremasterSecretFromEcdhe(TLS_Ctx *ctx, uint8_t *preMasterSecret, uint32_t *preMasterSecretLen)
 {
-    (void)ctx;
-    (void)text;
-    (void)textLen;
-    *recType = (uint8_t)REC_TYPE_APP;
-
-    return HITLS_SUCCESS;
+    int32_t ret = SAL_CRYPT_CalcEcdhSharedSecret(LIBCTX_FROM_CTX(ctx), ATTRIBUTE_FROM_CTX(ctx),
+        ctx->hsCtx->kxCtx->key, ctx->hsCtx->kxCtx->peerPubkey,
+        ctx->hsCtx->kxCtx->pubKeyLen, preMasterSecret, preMasterSecretLen);
+    *preMasterSecretLen = PREMASTERSECRETLEN;
+    return ret;
 }
-/* @
-* @test UT_TLS_TLS12_RFC5246_CONSISTENCY_RENEGOTIATION_UNSUPPORTED_TC002
-* @title Invoke the hitls_connect/hitls_accept/hitls_write interface to initiate renegotiation, and the peer end returns an app message.
-* @precon  nan
-* @brief    1. Invoke the hitls_renegotiate interface to initiate renegotiation. Expected result 1 is displayed.
-            2. Invoke the hitls_connect/hitls_accept/hitls_write interface to initiate renegotiation. The peer end replies with an app message. Expected result 2 is obtained.
-            3. The peer end continuously sends 51 app messages. Expected result 3 is obtained.
-            4. Read the stored app message. Expected result 4 is obtained.
-* @expect   1. The link enters the renegotiation state.
-            2. Received successfully.
-            3. Received successfully.
-            4. The 50th message can be read normally, and the 51st message is lost.
+
+/** @
+* @test UT_TLS_TLS12_RFC5246_CONSISTENCY_ECDHE_PSK_TC001
+* @title After the premasterkey to be received by the server is modified, the connection fails to be established.
+* @precon nan
+* @brief    1. Configure the PSK cipher suite. When generating the premasterkey, change the preMasterSecretLen parameter
+            of GenPremasterSecretFromEcdhe to 1534 to reach the maximum value of the secret and check whether it is out
+            of bounds.
+* @expect   1. The link success.
 @ */
 /* BEGIN_CASE */
-void UT_TLS_TLS12_RFC5246_CONSISTENCY_RENEGOTIATION_UNSUPPORTED_TC002()
+void UT_TLS_TLS12_RFC5246_CONSISTENCY_ECDHE_PSK_TC001(void)
+{
+    FRAME_Init();
+
+    HITLS_Config *config = HITLS_CFG_NewTLS12Config();
+    ASSERT_TRUE(config != NULL);
+    uint16_t cipherSuits[] = {HITLS_ECDHE_PSK_WITH_AES_128_CBC_SHA};
+    ASSERT_TRUE(
+        HITLS_CFG_SetCipherSuites(config, cipherSuits, sizeof(cipherSuits) / sizeof(uint16_t)) == HITLS_SUCCESS);
+    ASSERT_TRUE(HITLS_CFG_SetPskClientCallback(config, ExampleClientCb) == HITLS_SUCCESS);
+    ASSERT_TRUE(HITLS_CFG_SetPskServerCallback(config, ExampleServerCb) == HITLS_SUCCESS);
+
+    FRAME_LinkObj *client = FRAME_CreateLink(config, BSL_UIO_TCP);
+    ASSERT_TRUE(client != NULL);
+    FRAME_LinkObj *server = FRAME_CreateLink(config, BSL_UIO_TCP);
+    ASSERT_TRUE(server != NULL);
+
+    STUB_Init();
+    FuncStubInfo tmpStubInfo;
+    STUB_Replace(&tmpStubInfo, GenPremasterSecretFromEcdhe, Stub_GenPremasterSecretFromEcdhe);
+    ASSERT_EQ(FRAME_CreateConnection(client, server, false, HS_STATE_BUTT), HITLS_SUCCESS);
+
+EXIT:
+    STUB_Reset(&tmpStubInfo);
+    HITLS_CFG_FreeConfig(config);
+    FRAME_FreeLink(client);
+    FRAME_FreeLink(server);
+}
+/* END_CASE */
+
+/** @
+* @test UT_TLS_TLS12_RFC5246_RSA_REMASTER_TC001
+* @title After the premasterkey to be received by the server is modified, the connection fails to be established.
+* @precon nan
+* @brief    1. Configure the RSA cipher suite. When the server receives the premasterkey, change the value of the
+            premasterkey and construct a decryption failure scenario. It is expected that CCS messages are sent normally
+            and the link fails to be established. Expected result 1 is obtained.
+* @expect   1. The link fails to be set up.
+@ */
+/* BEGIN_CASE */
+void UT_TLS_TLS12_RFC5246_RSA_REMASTER_TC001(int rsaEncryptLen)
 {
     FRAME_Init();
     HITLS_Config *config = HITLS_CFG_NewTLS12Config();
-    FRAME_LinkObj *client = NULL;
-    FRAME_LinkObj *server = NULL;
-    config->isSupportRenegotiation = true;
+    ASSERT_TRUE(config != NULL);
+    HITLS_CFG_SetClientVerifySupport(config, false);
+    // 1.Configure the RSA cipher suite. Change the value of the premasterkey when the server receives the premasterkey.
+    // Construct a decryption failure scenario. The CCS message is expected to be sent normally.
+    uint16_t cipherSuits[] = {HITLS_RSA_WITH_AES_128_GCM_SHA256};
+    HITLS_CFG_SetCipherSuites(config, cipherSuits, sizeof(cipherSuits) / sizeof(uint16_t));
 
-    client = FRAME_CreateLink(config, BSL_UIO_TCP);
+    FRAME_LinkObj *client = FRAME_CreateLink(config, BSL_UIO_TCP);
     ASSERT_TRUE(client != NULL);
-    server = FRAME_CreateLink(config, BSL_UIO_TCP);
+    FRAME_LinkObj *server = FRAME_CreateLink(config, BSL_UIO_TCP);
     ASSERT_TRUE(server != NULL);
+    ASSERT_EQ(FRAME_CreateConnection(client, server, false, TRY_RECV_CLIENT_KEY_EXCHANGE), HITLS_SUCCESS);
 
-    ASSERT_TRUE(FRAME_CreateConnection(client, server, false, HS_STATE_BUTT) == HITLS_SUCCESS);
-    // 1. Invoke the hitls_renegotiate interface to initiate renegotiation.
-    ASSERT_TRUE(HITLS_Renegotiate(client->ssl) == HITLS_SUCCESS);
-    // 2. Invoke the hitls_connect/hitls_accept/hitls_write interface to initiate renegotiation. The peer end replies with an app message.
-    ASSERT_TRUE(HITLS_Connect(client->ssl) == HITLS_REC_NORMAL_RECV_BUF_EMPTY);
-    ASSERT_TRUE(FRAME_TrasferMsgBetweenLink(client, server) == HITLS_SUCCESS);
+    FrameUioUserData *ioUserData = BSL_UIO_GetUserData(server->io);
+    uint8_t *recvBuf = ioUserData->recMsg.msg;
+    uint32_t recvLen = ioUserData->recMsg.len;
+    ASSERT_TRUE(recvLen != 0);
+    uint32_t parseLen = 0;
+    FRAME_Msg frameMsg = {0};
+    FRAME_Type frameType = {0};
+    frameType.versionType = HITLS_VERSION_TLS12;
+    frameType.recordType = REC_TYPE_HANDSHAKE;
+    frameType.handshakeType = CLIENT_KEY_EXCHANGE;
+    frameType.keyExType = HITLS_KEY_EXCH_RSA;
+    ASSERT_TRUE(FRAME_ParseMsg(&frameType, recvBuf, recvLen, &frameMsg, &parseLen) == HITLS_SUCCESS);
 
-    uint8_t data[] = "Hello World";
-    int32_t count = 0;
-    while (count < 60) {
-        // 3. The peer end continuously sends 51 app messages.
-        int32_t ret = HITLS_Write(server->ssl, data, sizeof(data));
-        ASSERT_TRUE(ret == HITLS_SUCCESS);
-        ASSERT_TRUE(FRAME_TrasferMsgBetweenLink(server, client) == HITLS_SUCCESS);
-        ret = HITLS_Connect(client->ssl);
-        count++;
-        if (ret == HITLS_SUCCESS) {
-            // 4. Read the stored app message.
-            APP_Ctx *appCtx = client->ssl->appCtx;
-            if (count <= UNPROCESSED_APP_MSG_COUNT_MAX) {
-                ASSERT_TRUE(BSL_LIST_COUNT(appCtx->appList) == count);
-            } else {
-                ASSERT_TRUE(BSL_LIST_COUNT(appCtx->appList) == UNPROCESSED_APP_MSG_COUNT_MAX);
-            }
-        }
+    frameMsg.body.hsMsg.body.clientKeyExchange.pubKeySize.data = rsaEncryptLen;
+    BSL_SAL_FREE(frameMsg.body.hsMsg.body.clientKeyExchange.pubKey.data);
+    frameMsg.body.hsMsg.body.clientKeyExchange.pubKey.data = BSL_SAL_Calloc(1,rsaEncryptLen);
+    frameMsg.body.hsMsg.body.clientKeyExchange.pubKey.size = rsaEncryptLen;
+
+    uint32_t sendLen = MAX_RECORD_LENTH;
+    ASSERT_TRUE(FRAME_PackMsg(&frameType, &frameMsg, recvBuf, sendLen, &sendLen) == HITLS_SUCCESS);
+    ioUserData->recMsg.len = sendLen;
+    HITLS_Accept(server->ssl);
+    ASSERT_EQ(FRAME_CreateConnection(client, server, false, HS_STATE_BUTT), HITLS_REC_BAD_RECORD_MAC);
+    ALERT_Info alertInfo = { 0 };
+    ALERT_GetInfo(server->ssl, &alertInfo);
+    ASSERT_EQ(alertInfo.level, ALERT_LEVEL_FATAL);
+    ASSERT_EQ(alertInfo.description, ALERT_BAD_RECORD_MAC);
+
+EXIT:
+    FRAME_CleanMsg(&frameType, &frameMsg);
+    HITLS_CFG_FreeConfig(config);
+    FRAME_FreeLink(client);
+    FRAME_FreeLink(server);
+}
+/* END_CASE */
+
+/** @
+* @test UT_TLS_TLS12_RFC5246_CONSISTENCY_KEYUSAGE_CERT_TC004
+* @title The certificate without keyuage extension, and the link is successfully established.
+* @precon nan
+* @brief    1. Configure the server certificate without keyuage extension and support CheckKeyUsage. The link is successfully established. Expected result 1 is obtained.
+* @expect   1. The link is set up successfully.
+@ */
+/* BEGIN_CASE */
+void UT_TLS_TLS12_RFC5246_CONSISTENCY_KEYUSAGE_CERT_TC004(int isCheckKeyUsage)
+{
+    FRAME_Init();
+
+    HITLS_Config *config = HITLS_CFG_NewTLS12Config();
+    ASSERT_TRUE(config != NULL);
+    uint16_t cipherSuits[] = {HITLS_RSA_WITH_AES_128_CBC_SHA256};
+    ASSERT_TRUE(
+        HITLS_CFG_SetCipherSuites(config, cipherSuits, sizeof(cipherSuits) / sizeof(uint16_t)) == HITLS_SUCCESS);
+    HITLS_CFG_SetClientVerifySupport(config, true);
+
+    FRAME_CertInfo certInfoClient = {
+        "rsa_sha256/ca.der",
+        "rsa_sha256/inter.der",
+        "rsa_sha256/client.der",
+        0,
+        "rsa_sha256/client.key.der",
+        0,
+    };
+    FRAME_CertInfo certInfoServer = {
+        "rsa_sha256/ca.der",
+        "rsa_sha256/inter.der",
+        "rsa_sha256/server.der",
+        0,
+        "rsa_sha256/server.key.der",
+        0,
+    };
+    FRAME_LinkObj *client = FRAME_CreateLinkWithCert(config, BSL_UIO_TCP, &certInfoClient);
+    ASSERT_TRUE(client != NULL);
+    FRAME_LinkObj *server = FRAME_CreateLinkWithCert(config, BSL_UIO_TCP, &certInfoServer);
+    ASSERT_TRUE(server != NULL);
+    if (isCheckKeyUsage) {
+        HITLS_SetCheckKeyUsage(client->ssl, true);
+    } else {
+        HITLS_SetCheckKeyUsage(client->ssl, false);
     }
+    ASSERT_EQ(FRAME_CreateConnection(client, server, true, HS_STATE_BUTT), HITLS_SUCCESS);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);

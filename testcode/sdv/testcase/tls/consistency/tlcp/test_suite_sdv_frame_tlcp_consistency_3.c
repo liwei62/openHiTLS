@@ -28,19 +28,19 @@ static void Test_MisSessionId(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len,
     (void)bufSize;
     (void)user;
     FRAME_Type frameType = { 0 };
-    frameType.versionType = HITLS_VERSION_TLCP11;
+    frameType.versionType = HITLS_VERSION_TLCP_DTLCP11;
     frameType.keyExType = HITLS_KEY_EXCH_ECDHE;
     FRAME_Msg frameMsg = { 0 };
     frameMsg.recType.data = REC_TYPE_HANDSHAKE;
     frameMsg.length.data = *len;
-    frameMsg.recVersion.data = HITLS_VERSION_TLCP11;
+    frameMsg.recVersion.data = HITLS_VERSION_TLCP_DTLCP11;
     uint32_t parseLen = 0;
     FRAME_ParseMsgBody(&frameType, data, *len, &frameMsg, &parseLen);
     ASSERT_EQ(frameMsg.body.hsMsg.type.data, SERVER_HELLO);
     ASSERT_EQ(parseLen, *len);
     frameMsg.body.hsMsg.body.serverHello.sessionId.state = MISSING_FIELD;
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     frameType.keyExType = HITLS_KEY_EXCH_ECDHE;
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
@@ -58,7 +58,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLCP_CONSISTENCY_SESSIONID_MISS_TC001()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     HITLS_Config *config = NULL;
     FRAME_LinkObj *client = NULL;
@@ -83,7 +82,7 @@ void UT_TLS_TLCP_CONSISTENCY_SESSIONID_MISS_TC001()
     };
     RegisterWrapper(wrapper);
     ASSERT_NE(FRAME_CreateConnection(client, server, false, HS_STATE_BUTT), HITLS_SUCCESS);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -103,19 +102,19 @@ static void Test_DiffServerKeyEx(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len,
     (void)bufSize;
     (void)user;
     FRAME_Type frameType = { 0 };
-    frameType.versionType = HITLS_VERSION_TLCP11;
+    frameType.versionType = HITLS_VERSION_TLCP_DTLCP11;
     frameType.keyExType = HITLS_KEY_EXCH_ECDHE;
     FRAME_Msg frameMsg = { 0 };
     frameMsg.recType.data = REC_TYPE_HANDSHAKE;
     frameMsg.length.data = *len;
-    frameMsg.recVersion.data = HITLS_VERSION_TLCP11;
+    frameMsg.recVersion.data = HITLS_VERSION_TLCP_DTLCP11;
     uint32_t parseLen = 0;
     FRAME_ParseMsgBody(&frameType, data, *len, &frameMsg, &parseLen);
     ASSERT_EQ(frameMsg.body.hsMsg.type.data, SERVER_KEY_EXCHANGE);
     ASSERT_EQ(parseLen, *len);
     frameType.keyExType = HITLS_KEY_EXCH_ECC;
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     frameType.keyExType = HITLS_KEY_EXCH_ECDHE;
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
@@ -151,7 +150,7 @@ void UT_TLS_TLCP_CONSISTENCY_KEY_EXCHANGE_TC001()
     client = FRAME_CreateTLCPLink(config, BSL_UIO_TCP, true);
     server = FRAME_CreateTLCPLink(config, BSL_UIO_TCP, false);
     ASSERT_NE(FRAME_CreateConnection(client, server, false, HS_STATE_BUTT), HITLS_SUCCESS);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -176,6 +175,7 @@ void UT_TLS_TLCP_CONSISTENCY_CLIENTKXCH_VERSIONERR_TC001(char *cipherSuite)
 {
     FRAME_Init();
     STUB_Init();
+    RegDefaultMemCallback();
     HITLS_Config *tlsConfig = NULL;
     FRAME_LinkObj *client = NULL;
     FRAME_LinkObj *server = NULL;
@@ -200,7 +200,7 @@ void UT_TLS_TLCP_CONSISTENCY_CLIENTKXCH_VERSIONERR_TC001(char *cipherSuite)
     ALERT_Info alertInfo = { 0 };
     ALERT_GetInfo(server->ssl, &alertInfo);
     ASSERT_EQ(alertInfo.description, ALERT_BAD_RECORD_MAC);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -246,8 +246,8 @@ void UT_TLS_TLCP_CONSISTENCY_CERTFICATE_TC001()
 
     int32_t ret;
     ret = FRAME_CreateConnection(client, server, true, HS_STATE_BUTT);
-    ASSERT_EQ(ret, HITLS_CERT_ERR_EXP_CERT);
-exit:
+    ASSERT_EQ(ret, HITLS_CERT_ERR_KEYUSAGE);
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -298,7 +298,6 @@ static void TEST_UnexpectMsg(HLT_FrameHandle *frameHandle, TestExpect *testExpec
     if (isSupportClientVerify) {
         ASSERT_TRUE(HLT_SetClientVerifySupport(serverConfig, isSupportClientVerify) == 0);
     }
-
     HLT_Ctx_Config *clientConfig = HLT_NewCtxConfigTLCP(NULL, "CLIENT", true);
     ASSERT_TRUE(clientConfig != NULL);
     ASSERT_TRUE(HLT_SetClientVerifySupport(clientConfig, isSupportClientVerify) == 0);
@@ -320,7 +319,7 @@ static void TEST_UnexpectMsg(HLT_FrameHandle *frameHandle, TestExpect *testExpec
     ASSERT_EQ(alertInfo.description, testExpect->expectDescription);
     ASSERT_EQ(HLT_RpcGetTlsAcceptResult(serverRes->acceptId), testExpect->acceptExpect);
 
-exit:
+EXIT:
     HLT_CleanFrameHandle();
     HLT_FreeAllProcess();
 }
@@ -407,6 +406,7 @@ static void TEST_SendUnexpectCertificateMsg(void *msg, void *data)
     frameType->recordType = REC_TYPE_HANDSHAKE;
     frameType->handshakeType = CERTIFICATE;
     frameType->keyExType = HITLS_KEY_EXCH_ECDHE;
+    frameType->transportType = BSL_UIO_TCP;
     if (memcpy_s(msg, sizeof(FRAME_Msg), &newFrameMsg, sizeof(newFrameMsg)) != EOK) {
         Print("TEST_SendUnexpectCertificateMsg memcpy_s Error!");
     }
@@ -452,19 +452,21 @@ static void Test_ErrCertVerify(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len,
     (void)bufSize;
     (void)user;
     FRAME_Type frameType = { 0 };
-    frameType.versionType = HITLS_VERSION_TLCP11;
+    frameType.versionType = HITLS_VERSION_TLCP_DTLCP11;
     frameType.keyExType = HITLS_KEY_EXCH_ECDHE;
+    frameType.transportType = BSL_UIO_TCP;
     FRAME_Msg frameMsg = { 0 };
     frameMsg.recType.data = REC_TYPE_HANDSHAKE;
     frameMsg.length.data = *len;
-    frameMsg.recVersion.data = HITLS_VERSION_TLCP11;
+    frameMsg.recVersion.data = HITLS_VERSION_TLCP_DTLCP11;
+    frameMsg.transportType = BSL_UIO_TCP;
     uint32_t parseLen = 0;
     FRAME_ParseMsgBody(&frameType, data, *len, &frameMsg, &parseLen);
     ASSERT_EQ(frameMsg.body.hsMsg.type.data, CERTIFICATE_VERIFY);
     ASSERT_EQ(parseLen, *len);
     frameMsg.body.hsMsg.body.certificateVerify.sign.data[0]++;
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     frameType.keyExType = HITLS_KEY_EXCH_ECDHE;
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
@@ -484,7 +486,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLCP_CONSISTENCY_CERTFICATE_TC005()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     HITLS_Config *config = NULL;
     FRAME_LinkObj *client;
@@ -502,7 +503,7 @@ void UT_TLS_TLCP_CONSISTENCY_CERTFICATE_TC005()
     client = FRAME_CreateTLCPLink(config, BSL_UIO_TCP, true);
     server = FRAME_CreateTLCPLink(config, BSL_UIO_TCP, false);
     ASSERT_NE(FRAME_CreateConnection(client, server, false, HS_STATE_BUTT), HITLS_SUCCESS);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -524,7 +525,6 @@ exit:
 /* BEGIN_CASE */
 void UT_TLS_TLCP_CONSISTENCY_CERTFICATE_TC006()
 {
-    HITLS_CryptMethodInit();
     FRAME_Init();
     HITLS_Config *config = NULL;
     FRAME_LinkObj *client;
@@ -544,7 +544,7 @@ void UT_TLS_TLCP_CONSISTENCY_CERTFICATE_TC006()
     client = FRAME_CreateTLCPLink(config, BSL_UIO_TCP, true);
     server = FRAME_CreateTLCPLink(config, BSL_UIO_TCP, false);
     ASSERT_NE(FRAME_CreateConnection(client, server, false, HS_STATE_BUTT), HITLS_SUCCESS);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(config);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -555,11 +555,7 @@ exit:
 static int32_t SendCcs(HITLS_Ctx *ctx, uint8_t *data, uint8_t len)
 {
     /** Write records. */
-    int32_t ret = REC_Write(ctx, REC_TYPE_CHANGE_CIPHER_SPEC, data, len);
-    if (ret != HITLS_SUCCESS) {
-        return ret;
-    }
-    return HITLS_SUCCESS;
+    return REC_Write(ctx, REC_TYPE_CHANGE_CIPHER_SPEC, data, len);
 }
 
 /* @
@@ -622,7 +618,7 @@ void UT_TLS_TLCP_CONSISTENCY_CCS_TC006(int isClient)
         ASSERT_EQ(info.description, ALERT_UNEXPECTED_MESSAGE);
     }
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -636,11 +632,11 @@ static void Test_Finish_Len_TooLong(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len
     (void)bufSize;
     (void)user;
     FRAME_Type frameType = { 0 };
-    frameType.versionType = HITLS_VERSION_TLCP11;
+    frameType.versionType = HITLS_VERSION_TLCP_DTLCP11;
     FRAME_Msg frameMsg = { 0 };
     frameMsg.recType.data = REC_TYPE_HANDSHAKE;
     frameMsg.length.data = *len;
-    frameMsg.recVersion.data = HITLS_VERSION_TLCP11;
+    frameMsg.recVersion.data = HITLS_VERSION_TLCP_DTLCP11;
     uint32_t parseLen = 0;
     FRAME_ParseMsgBody(&frameType, data, *len, &frameMsg, &parseLen);
     ASSERT_EQ(parseLen, *len);
@@ -651,7 +647,7 @@ static void Test_Finish_Len_TooLong(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len
     frameMsg.body.hsMsg.body.finished.verifyData.data[0] = 0x00;
 
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -663,11 +659,11 @@ static void Test_Finish_Len_TooLong_client(HITLS_Ctx *ctx, uint8_t *data, uint32
     (void)bufSize;
     (void)user;
     FRAME_Type frameType = { 0 };
-    frameType.versionType = HITLS_VERSION_TLCP11;
+    frameType.versionType = HITLS_VERSION_TLCP_DTLCP11;
     FRAME_Msg frameMsg = { 0 };
     frameMsg.recType.data = REC_TYPE_HANDSHAKE;
     frameMsg.length.data = *len;
-    frameMsg.recVersion.data = HITLS_VERSION_TLCP11;
+    frameMsg.recVersion.data = HITLS_VERSION_TLCP_DTLCP11;
     uint32_t parseLen = 0;
     FRAME_ParseMsgBody(&frameType, data, *len, &frameMsg, &parseLen);
     ASSERT_EQ(parseLen, *len);
@@ -678,7 +674,7 @@ static void Test_Finish_Len_TooLong_client(HITLS_Ctx *ctx, uint8_t *data, uint32
         frameMsg.body.hsMsg.body.finished.verifyData.data[0] = 0x00;
     }
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -699,7 +695,7 @@ void UT_TLS_TLCP_CONSISTENCY_ERROR_FINISH_001(void)
     FRAME_Init();
 
     ResumeTestInfo testInfo = {0};
-    testInfo.version = HITLS_VERSION_TLCP11;
+    testInfo.version = HITLS_VERSION_TLCP_DTLCP11;
     testInfo.uioType = BSL_UIO_TCP;
     RecWrapper wrapper = {
         TRY_SEND_FINISH,
@@ -720,7 +716,7 @@ void UT_TLS_TLCP_CONSISTENCY_ERROR_FINISH_001(void)
 
     ASSERT_EQ(FRAME_CreateConnection(testInfo.client, testInfo.server, true, HS_STATE_BUTT), HITLS_MSG_HANDLE_VERIFY_FINISHED_FAIL);
 
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -744,7 +740,7 @@ void UT_TLS_TLCP_CONSISTENCY_ERROR_FINISH_002(void)
     FRAME_Init();
 
     ResumeTestInfo testInfo = {0};
-    testInfo.version = HITLS_VERSION_TLCP11;
+    testInfo.version = HITLS_VERSION_TLCP_DTLCP11;
     testInfo.uioType = BSL_UIO_TCP;
     RecWrapper wrapper = {
         TRY_SEND_FINISH,
@@ -763,7 +759,7 @@ void UT_TLS_TLCP_CONSISTENCY_ERROR_FINISH_002(void)
     ASSERT_TRUE(testInfo.server != NULL);
 
     ASSERT_EQ(FRAME_CreateConnection(testInfo.client, testInfo.server, true, HS_STATE_BUTT), HITLS_MSG_HANDLE_VERIFY_FINISHED_FAIL);
-exit:
+EXIT:
     ClearWrapper();
     HITLS_CFG_FreeConfig(testInfo.config);
     FRAME_FreeLink(testInfo.client);
@@ -846,7 +842,7 @@ void UT_TLS_TLCP_CONSISTENCY_DISORDER_TC001(void)
     ALERT_GetInfo(client->ssl, &alert);
     ASSERT_EQ(alert.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(alert.description, ALERT_UNEXPECTED_MESSAGE);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -904,7 +900,7 @@ void UT_TLS_TLCP_CONSISTENCY_DISORDER_TC002(void)
     ASSERT_EQ(info.level, ALERT_LEVEL_FATAL);
     ASSERT_EQ(info.description, ALERT_UNEXPECTED_MESSAGE);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -947,7 +943,7 @@ void UT_TLS_TLCP_CONSISTENCY_DISORDER_TC003(void)
 
     FRAME_Msg frameMsg = {0};
     FRAME_Type frameType = {0};
-    frameType.versionType = HITLS_VERSION_TLCP11;
+    frameType.versionType = HITLS_VERSION_TLCP_DTLCP11;
     frameType.recordType = REC_TYPE_HANDSHAKE;
     frameType.handshakeType = CLIENT_KEY_EXCHANGE;
     frameType.keyExType = HITLS_KEY_EXCH_ECDHE;
@@ -980,7 +976,7 @@ void UT_TLS_TLCP_CONSISTENCY_DISORDER_TC003(void)
     ASSERT_TRUE(alertMsg->alertLevel.data == ALERT_LEVEL_FATAL);
     ASSERT_TRUE(alertMsg->alertDescription.data == ALERT_UNEXPECTED_MESSAGE);
 
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     HITLS_CFG_FreeConfig(tlsConfig);
     FRAME_FreeLink(client);
@@ -988,10 +984,11 @@ exit:
 }
 /* END_CASE */
 
-static int32_t STUB_APP_Write_Fatal(TLS_Ctx *ctx, const uint8_t *data, uint32_t dataLen)
+static int32_t STUB_APP_Write_Fatal(TLS_Ctx *ctx, const uint8_t *data, uint32_t dataLen, uint32_t *writeLen)
 {
     (void)data;
     (void)dataLen;
+    (void)writeLen;
     ctx->method.sendAlert(ctx, ALERT_LEVEL_FATAL, ALERT_UNEXPECTED_MESSAGE);
     return HITLS_INTERNAL_EXCEPTION;
 }
@@ -1039,7 +1036,8 @@ void UT_TLS_TLCP_CONSISTENCY_FATAL_ALERT_TC003(char *cipherSuite, int isResume)
     uint32_t readLen = 0;
     uint8_t data[] = "Hello World";
     STUB_Replace(&tmpRpInfo, APP_Write, STUB_APP_Write_Fatal);
-    ASSERT_EQ(HITLS_Write(server->ssl, data, sizeof(data)), HITLS_INTERNAL_EXCEPTION);
+    uint32_t writeLen;
+    ASSERT_EQ(HITLS_Write(server->ssl, data, sizeof(data), &writeLen), HITLS_INTERNAL_EXCEPTION);
     STUB_Reset(&tmpRpInfo);
     ASSERT_TRUE(server->ssl->state == CM_STATE_ALERTED);
 
@@ -1063,13 +1061,13 @@ void UT_TLS_TLCP_CONSISTENCY_FATAL_ALERT_TC003(char *cipherSuite, int isResume)
 
         ASSERT_TRUE(memcmp(serverSession->sessionId, Newsession->sessionId, HITLS_SESSION_ID_MAX_SIZE) != 0);
     } else {
-        ASSERT_TRUE(HITLS_Write(server->ssl, data, sizeof(data)) == HITLS_CM_LINK_FATAL_ALERTED);
+        ASSERT_TRUE(HITLS_Write(server->ssl, data, sizeof(data), &writeLen) == HITLS_CM_LINK_FATAL_ALERTED);
         ASSERT_EQ(HITLS_Read(server->ssl, readBuf, READ_BUF_SIZE, &readLen), HITLS_CM_LINK_FATAL_ALERTED);
     }
 
     ASSERT_TRUE(HITLS_Close(client->ssl) == HITLS_SUCCESS);
     ASSERT_TRUE(client->ssl->state == CM_STATE_CLOSED);
-exit:
+EXIT:
     HITLS_SESS_Free(Newsession);
     HITLS_SESS_Free(serverSession);
     HITLS_CFG_FreeConfig(tlsConfig);
@@ -1142,7 +1140,7 @@ void UT_TLS_TLCP_CONSISTENCY_CLOSE_NOTIFY_TC001(void)
     ASSERT_TRUE(serverframeMsg.body.alertMsg.level == ALERT_LEVEL_WARNING &&
         serverframeMsg.body.alertMsg.description == ALERT_CLOSE_NOTIFY);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -1230,7 +1228,7 @@ void UT_TLS_TLCP_CONSISTENCY_CLOSE_NOTIFY_TC002(void)
     ASSERT_TRUE(serverframeMsg1.body.alertMsg.level == ALERT_LEVEL_WARNING &&
         serverframeMsg1.body.alertMsg.description == ALERT_CLOSE_NOTIFY);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -1299,7 +1297,7 @@ void UT_TLS_TLCP_CONSISTENCY_CLOSE_NOTIFY_TC003(void)
     ASSERT_TRUE(clientframeMsg.body.alertMsg.level == ALERT_LEVEL_WARNING &&
         clientframeMsg.body.alertMsg.description == ALERT_CLOSE_NOTIFY);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -1386,7 +1384,7 @@ void UT_TLS_TLCP_CONSISTENCY_CLOSE_NOTIFY_TC004(void)
     ASSERT_EQ(alert.level, ALERT_LEVEL_WARNING);
     ASSERT_EQ(alert.description, ALERT_CLOSE_NOTIFY);
 
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -1435,7 +1433,8 @@ void UT_TLS_TLCP_CONSISTENCY_AMEND_APPDATA_TC001(char *cipherSuite, int isClient
     uint8_t data[] = "Hello World";
     uint8_t readBuf[READ_BUF_SIZE] = {0};
     uint32_t readLen = 0;
-    ASSERT_EQ(HITLS_Write(sender->ssl, data, sizeof(data)), HITLS_SUCCESS);
+    uint32_t writeLen = 0;
+    ASSERT_EQ(HITLS_Write(sender->ssl, data, sizeof(data), &writeLen), HITLS_SUCCESS);
     ASSERT_TRUE(FRAME_TrasferMsgBetweenLink(sender, recver) == HITLS_SUCCESS);
 
     FRAME_Msg frameMsg = { 0 };
@@ -1446,7 +1445,7 @@ void UT_TLS_TLCP_CONSISTENCY_AMEND_APPDATA_TC001(char *cipherSuite, int isClient
     ASSERT_TRUE(recvLen != 0);
 
     uint32_t parseLen = 0;
-    frameType.versionType = HITLS_VERSION_TLCP11;
+    frameType.versionType = HITLS_VERSION_TLCP_DTLCP11;
     frameType.recordType = REC_TYPE_APP;
     frameType.keyExType = HITLS_KEY_EXCH_ECDHE;
     ASSERT_TRUE(FRAME_ParseMsg(&frameType, recvBuf, recvLen, &frameMsg, &parseLen) == HITLS_SUCCESS);
@@ -1471,7 +1470,7 @@ void UT_TLS_TLCP_CONSISTENCY_AMEND_APPDATA_TC001(char *cipherSuite, int isClient
 
     ASSERT_TRUE(HITLS_Close(client->ssl) == HITLS_SUCCESS);
     ASSERT_TRUE(client->ssl->state == CM_STATE_CLOSED);
-exit:
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);
@@ -1529,7 +1528,207 @@ void UT_FRAME_FUNC_TLCP_CERT_MISMATCH_TC001(char *cipherSuite)
     ALERT_Info alertInfo = { 0 };
     ALERT_GetInfo(server->ssl, &alertInfo);
     ASSERT_EQ(alertInfo.description, ALERT_HANDSHAKE_FAILURE);
-exit:
+EXIT:
+    HITLS_CFG_FreeConfig(tlsConfig);
+    FRAME_FreeLink(client);
+    FRAME_FreeLink(server);
+}
+/* END_CASE */
+
+/* @
+* @test   UT_TLS_TLCP_CONSISTENCY_KEYUSAGE_TC001
+* @title  The encryption certificate does not have a keyusage extension, and check the result.
+* @precon nan
+* @brief  1. Use the default configuration on the client and server，Server setting encryption certificate without 
+*               keyusage extension. Expected result 1.
+*         2. Start a handshake. Expected result 2.
+* @expect 1. The initialization is successful.
+*         2. The client sends the ALERT_BAD_CERTIFICATE message.
+@ */
+/* BEGIN_CASE */
+void UT_TLS_TLCP_CONSISTENCY_KEYUSAGE_TC001()
+{
+    FRAME_Init();
+
+    HITLS_Config *tlsConfig = NULL;
+    FRAME_LinkObj *client = NULL;
+    FRAME_LinkObj *server = NULL;
+    FRAME_CertInfo certInfo = {
+        "sm2_cert/root.der",
+        "sm2_cert/intCa.der",
+        "sm2_cert/server_enc_no_keyusage.der",
+        "sm2_cert/server_sign.der",
+        "sm2_cert/server_enc_no_keyusage.key.der",
+        "sm2_cert/server_sign.key.der",
+    };
+
+    tlsConfig = HITLS_CFG_NewTLCPConfig();
+    ASSERT_TRUE(tlsConfig != NULL);
+
+    client = FRAME_CreateLinkWithCert(tlsConfig, BSL_UIO_TCP, &certInfo);
+    ASSERT_TRUE(client != NULL);
+
+    server = FRAME_CreateLinkWithCert(tlsConfig, BSL_UIO_TCP, &certInfo);
+    ASSERT_TRUE(server != NULL);
+
+    int32_t ret = FRAME_CreateConnection(client, server, true, HS_STATE_BUTT);
+    ASSERT_EQ(ret, HITLS_CERT_ERR_EXP_CERT);
+    ALERT_Info info = { 0 };
+    ALERT_GetInfo(client->ssl, &info);
+    ASSERT_EQ(info.flag, ALERT_FLAG_SEND);
+    ASSERT_EQ(info.level, ALERT_LEVEL_FATAL);
+    ASSERT_EQ(info.description, ALERT_BAD_CERTIFICATE);
+EXIT:
+    HITLS_CFG_FreeConfig(tlsConfig);
+    FRAME_FreeLink(client);
+    FRAME_FreeLink(server);
+}
+/* END_CASE */
+
+/* @
+* @test   UT_TLS_TLCP_CONSISTENCY_KEYUSAGE_TC002
+* @title  The signing certificate does not have a keyusage extension, and check the result.
+* @precon nan
+* @brief  1. Use the default configuration on the client and server，Server setting signing certificate without 
+*               keyusage extension. Expected result 1.
+*         2. Start a handshake. Expected result 2.
+* @expect 1. The initialization is successful.
+*         2. The client sends the ALERT_BAD_CERTIFICATE message.
+@ */
+/* BEGIN_CASE */
+void UT_TLS_TLCP_CONSISTENCY_KEYUSAGE_TC002()
+{
+    FRAME_Init();
+
+    HITLS_Config *tlsConfig = NULL;
+    FRAME_LinkObj *client = NULL;
+    FRAME_LinkObj *server = NULL;
+    FRAME_CertInfo certInfo = {
+        "sm2_cert/root.der",
+        "sm2_cert/intCa.der",
+        "sm2_cert/server_enc.der",
+        "sm2_cert/server_sign_no_keyusage.der",
+        "sm2_cert/server_enc.key.der",
+        "sm2_cert/server_sign_no_keyusage.key.der",
+    };
+
+    tlsConfig = HITLS_CFG_NewTLCPConfig();
+    ASSERT_TRUE(tlsConfig != NULL);
+
+    client = FRAME_CreateLinkWithCert(tlsConfig, BSL_UIO_TCP, &certInfo);
+    ASSERT_TRUE(client != NULL);
+
+    server = FRAME_CreateLinkWithCert(tlsConfig, BSL_UIO_TCP, &certInfo);
+    ASSERT_TRUE(server != NULL);
+
+    int32_t ret = FRAME_CreateConnection(client, server, true, HS_STATE_BUTT);
+    ASSERT_EQ(ret, HITLS_CERT_ERR_KEYUSAGE);
+    ALERT_Info info = { 0 };
+    ALERT_GetInfo(client->ssl, &info);
+    ASSERT_EQ(info.flag, ALERT_FLAG_SEND);
+    ASSERT_EQ(info.level, ALERT_LEVEL_FATAL);
+    ASSERT_EQ(info.description, ALERT_BAD_CERTIFICATE);
+EXIT:
+    HITLS_CFG_FreeConfig(tlsConfig);
+    FRAME_FreeLink(client);
+    FRAME_FreeLink(server);
+}
+/* END_CASE */
+
+/* @
+* @test   UT_TLS_TLCP_CONSISTENCY_KEYUSAGE_TC003
+* @title  The signature certificate has an incorrect keyusage extension, and check the result.
+* @precon nan
+* @brief  1. Use the default configuration on the client and server，The server's signature certificate contains an
+*               incorrect keyusage extension. Expected result 1.
+*         2. Start a handshake. Expected result 2.
+* @expect 1. The initialization is successful.
+*         2. The client sends the ALERT_BAD_CERTIFICATE message.
+@ */
+/* BEGIN_CASE */
+void UT_TLS_TLCP_CONSISTENCY_KEYUSAGE_TC003()
+{
+    FRAME_Init();
+
+    HITLS_Config *tlsConfig = NULL;
+    FRAME_LinkObj *client = NULL;
+    FRAME_LinkObj *server = NULL;
+    FRAME_CertInfo certInfo = {
+        "sm2_cert/root.der",
+        "sm2_cert/intCa.der",
+        "sm2_cert/server_enc.der",
+        "sm2_cert/client_sign_err_keyusage.der",
+        "sm2_cert/server_enc.key.der",
+        "sm2_cert/client_sign_err_keyusage.key.der",
+    };
+
+    tlsConfig = HITLS_CFG_NewTLCPConfig();
+    ASSERT_TRUE(tlsConfig != NULL);
+
+    client = FRAME_CreateLinkWithCert(tlsConfig, BSL_UIO_TCP, &certInfo);
+    ASSERT_TRUE(client != NULL);
+
+    server = FRAME_CreateLinkWithCert(tlsConfig, BSL_UIO_TCP, &certInfo);
+    ASSERT_TRUE(server != NULL);
+
+    int32_t ret = FRAME_CreateConnection(client, server, true, HS_STATE_BUTT);
+    ASSERT_EQ(ret, HITLS_CERT_ERR_KEYUSAGE);
+    ALERT_Info info = { 0 };
+    ALERT_GetInfo(client->ssl, &info);
+    ASSERT_EQ(info.flag, ALERT_FLAG_SEND);
+    ASSERT_EQ(info.level, ALERT_LEVEL_FATAL);
+    ASSERT_EQ(info.description, ALERT_BAD_CERTIFICATE);
+EXIT:
+    HITLS_CFG_FreeConfig(tlsConfig);
+    FRAME_FreeLink(client);
+    FRAME_FreeLink(server);
+}
+/* END_CASE */
+
+/* @
+* @test   UT_TLS_TLCP_CONSISTENCY_KEYUSAGE_TC004
+* @title  The encryption certificate has an incorrect keyusage extension, and check the result.
+* @precon nan
+* @brief  1. Use the default configuration on the client and server，The server's encryption certificate contains an
+*               incorrect keyusage extension. Expected result 1.
+*         2. Start a handshake. Expected result 2.
+* @expect 1. The initialization is successful.
+*         2. The client sends the ALERT_BAD_CERTIFICATE message.
+@ */
+/* BEGIN_CASE */
+void UT_TLS_TLCP_CONSISTENCY_KEYUSAGE_TC004()
+{
+    FRAME_Init();
+
+    HITLS_Config *tlsConfig = NULL;
+    FRAME_LinkObj *client = NULL;
+    FRAME_LinkObj *server = NULL;
+    FRAME_CertInfo certInfo = {
+        "sm2_cert/root.der",
+        "sm2_cert/intCa.der",
+        "sm2_cert/client_enc_err_keyusage.der",
+        "sm2_cert/server_sign.der",
+        "sm2_cert/client_enc_err_keyusage.key.der",
+        "sm2_cert/server_sign.key.der",
+    };
+
+    tlsConfig = HITLS_CFG_NewTLCPConfig();
+    ASSERT_TRUE(tlsConfig != NULL);
+
+    client = FRAME_CreateLinkWithCert(tlsConfig, BSL_UIO_TCP, &certInfo);
+    ASSERT_TRUE(client != NULL);
+
+    server = FRAME_CreateLinkWithCert(tlsConfig, BSL_UIO_TCP, &certInfo);
+    ASSERT_TRUE(server != NULL);
+
+    int32_t ret = FRAME_CreateConnection(client, server, true, HS_STATE_BUTT);
+    ASSERT_EQ(ret, HITLS_CERT_ERR_EXP_CERT);
+    ALERT_Info info = { 0 };
+    ALERT_GetInfo(client->ssl, &info);
+    ASSERT_EQ(info.flag, ALERT_FLAG_SEND);
+    ASSERT_EQ(info.level, ALERT_LEVEL_FATAL);
+    ASSERT_EQ(info.description, ALERT_BAD_CERTIFICATE);
+EXIT:
     HITLS_CFG_FreeConfig(tlsConfig);
     FRAME_FreeLink(client);
     FRAME_FreeLink(server);

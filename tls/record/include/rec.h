@@ -18,6 +18,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "hitls_build.h"
 #include "hitls_crypt_type.h"
 #include "tls.h"
 
@@ -25,11 +26,14 @@
 extern "C" {
 #endif
 
+#define DTLS_MIN_MTU 256    /* Minimum MTU setting size */
 #define REC_MAX_PLAIN_LENGTH 16384          /* Maximum plain length */
 /* TLS13 Maximum MAC address padding */
 #define REC_MAX_TLS13_ENCRYPTED_OVERHEAD  256u
 /* TLS13 Maximum ciphertext length */
 #define REC_MAX_TLS13_ENCRYPTED_LEN (REC_MAX_PLAIN_LENGTH + REC_MAX_TLS13_ENCRYPTED_OVERHEAD)
+/* The length (in bytes) of the following TLSCiphertext.fragment. The length MUST NOT exceed 2^14 + 2048. */
+#define REC_MAX_PLAIN_DECRYPTO_MAX_LENGTH (16384 + 2048)
 
 #define REC_MASTER_SECRET_LEN 48
 #define REC_RANDOM_LEN  32
@@ -152,6 +156,27 @@ int32_t REC_Write(TLS_Ctx *ctx, REC_Type recordType, const uint8_t *data, uint32
 
 /**
  * @ingroup record
+ * @brief   Activate the expired write state. This API is invoked in the retransmission scenario
+ *
+ * @attention Reservation Interface
+ * @param   ctx [IN] TLS object
+ *
+ */
+void REC_ActiveOutdatedWriteState(TLS_Ctx *ctx);
+
+/**
+ * @ingroup record
+ * @brief   Disable the expired write status. This API is invoked in the retransmission scenario
+ *
+ * @attention Reservation Interface
+ * @param   ctx [IN] TLS object
+ *
+ */
+void REC_DeActiveOutdatedWriteState(TLS_Ctx *ctx);
+
+
+/**
+ * @ingroup record
  * @brief   Initialize the pending state
  *
  * @param   ctx [IN] TLS object
@@ -179,6 +204,16 @@ int32_t REC_InitPendingState(const TLS_Ctx *ctx, const REC_SecParameters *param)
 int32_t REC_ActivePendingState(TLS_Ctx *ctx, bool isOut);
 
 /**
+ * @brief   Calculate the mtu
+ *
+ * @param   ctx [IN] TLS_Ctx context
+ *
+ * @retval  HITLS_SUCCESS
+ * @retval  ITLS_UIO_FAIL The uio ctrl failed
+ */
+int32_t REC_QueryMtu(TLS_Ctx *ctx);
+
+/**
  * @brief   Obtain the maximum writable plaintext length of a single record
  *
  * @param   ctx [IN] TLS_Ctx context
@@ -189,6 +224,18 @@ int32_t REC_ActivePendingState(TLS_Ctx *ctx, bool isOut);
  * @retval  HITLS_REC_PMTU_TOO_SMALL The PMTU is too small
  */
 int32_t REC_GetMaxWriteSize(const TLS_Ctx *ctx, uint32_t *len);
+
+/**
+ * @brief   Obtain the maximum writable plaintext according to mtu
+ *
+ * @param   ctx [IN] TLS_Ctx context
+ * @param   len [OUT] Maximum length of the plaintext
+ *
+ * @retval  HITLS_SUCCESS
+ * @retval  HITLS_UIO_IO_TYPE_ERROR Not UDP uio
+ * @retval  HITLS_REC_PMTU_TOO_SMALL The PMTU is too small
+ */
+int32_t REC_GetMaxDataMtu(const TLS_Ctx *ctx, uint32_t *len);
 
 /**
  * @ingroup record
@@ -206,20 +253,48 @@ int32_t REC_GetMaxWriteSize(const TLS_Ctx *ctx, uint32_t *len);
 int32_t REC_TLS13InitPendingState(const TLS_Ctx *ctx, const REC_SecParameters *param, bool isOut);
 
 /**
- * @brief   read N bytes from tls record layer
- * @attention Currently, this interface is used only at the handshake layer
- and cannot process handshake message fragments.
- * @param   ctx [IN] TLS connection handle.
- * @param   recordType [IN] Buffer data
- * @param   buf [IN] Read data
- * @param   num [IN] Number of bytes expected to be read
+ * @ingroup record
+ * @brief   Retransmit a record
  *
- * @retval  HITLS_SUCCESS
- * @retval  HITLS_MEMCPY_FAIL Memory Copy Failed
- * @retval  For details about other error codes, see hitls_error.h
+ * @param   recCtx [IN] Record context
+ * @param   recordType [IN] record type
+ * @param   data [IN] data
+ * @param   dataLen [IN] data length
  */
-int32_t REC_TlsReadNbytes(TLS_Ctx *ctx, REC_Type recordType, uint8_t *buf, uint32_t num);
+int32_t REC_RetransmitListAppend(REC_Ctx *recCtx, REC_Type recordType, const uint8_t *data, uint32_t dataLen);
 
+/**
+ * @ingroup record
+ * @brief   Clean the retransmit list
+ *
+ * @param   recCtx [IN] Record context
+ */
+void REC_RetransmitListClean(REC_Ctx *recCtx);
+
+
+/**
+ * @ingroup record
+ * @brief   Flush the retransmit list
+ *
+ * @param   ctx [IN] TLS object
+ * @retval  HITLS_SUCCESS
+ */
+int32_t REC_RetransmitListFlush(TLS_Ctx *ctx);
+
+REC_Type REC_GetUnexpectedMsgType(TLS_Ctx *ctx);
+
+bool REC_HaveReadSuiteInfo(const TLS_Ctx *ctx);
+
+/**
+ * @ingroup app
+ * @brief Obtain the length of the remaining readable app messages in the current record.
+ *
+ * @param ctx [IN] TLS object
+ * @return Length of the remaining readable app message
+ */
+uint32_t APP_GetReadPendingBytes(const TLS_Ctx *ctx);
+
+int32_t REC_RecBufReSet(TLS_Ctx *ctx);
 #ifdef __cplusplus
 }
 #endif

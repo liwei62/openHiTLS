@@ -12,7 +12,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-
+#include "hitls_build.h"
+#ifdef HITLS_TLS_HOST_SERVER
 #include "securec.h"
 #include "tls_binlog_id.h"
 #include "bsl_log_internal.h"
@@ -31,7 +32,10 @@
 #include "pack.h"
 #include "send_process.h"
 #include "hs_kx.h"
+#include "config_type.h"
 
+#if defined(HITLS_TLS_PROTO_TLS_BASIC) || defined(HITLS_TLS_PROTO_DTLS12)
+#ifdef HITLS_TLS_FEATURE_SESSION
 static int32_t ServerPrepareSessionId(TLS_Ctx *ctx)
 {
     /* Obtain the server information */
@@ -58,7 +62,7 @@ static int32_t ServerPrepareSessionId(TLS_Ctx *ctx)
                 return ret;
             }
         } else {
-            /* If session ID resumption  is not supported, the session ID is not sent when the first connection
+            /* If session ID resumption is not supported, the session ID is not sent when the first connection
              * is established */
             BSL_SAL_FREE(hsCtx->sessionId);
             hsCtx->sessionIdSize = 0;
@@ -76,9 +80,10 @@ static int32_t ServerPrepareSessionId(TLS_Ctx *ctx)
 
     return HITLS_SUCCESS;
 }
-
+#endif /* HITLS_TLS_FEATURE_SESSION */
 static int32_t ServerChangeStateAfterSendHello(TLS_Ctx *ctx)
 {
+#ifdef HITLS_TLS_FEATURE_SESSION
     int32_t ret = HITLS_SUCCESS;
     if (ctx->negotiatedInfo.isResume == true) {
         ret = HS_ResumeKeyEstablish(ctx);
@@ -90,9 +95,11 @@ static int32_t ServerChangeStateAfterSendHello(TLS_Ctx *ctx)
         }
         return HS_ChangeState(ctx, TRY_SEND_CHANGE_CIPHER_SPEC);
     }
+#endif /* HITLS_TLS_FEATURE_SESSION */
     /* Check whether the server sends the certificate message. If the server does not need to send the certificate
      * message, update the status to the server key exchange */
     if (IsNeedCertPrepare(&ctx->negotiatedInfo.cipherSuiteInfo) == false) {
+#ifdef HITLS_TLS_FEATURE_PSK
         /* There are multiple possible jumps after the ServerHello in the plain PSK negotiation */
         if (ctx->hsCtx->kxCtx->keyExchAlgo == HITLS_KEY_EXCH_PSK) {
             /* Special: If the server does not send the certificate and the plain PSK negotiation mode is used, the
@@ -106,63 +113,67 @@ static int32_t ServerChangeStateAfterSendHello(TLS_Ctx *ctx)
             }
             return HS_ChangeState(ctx, TRY_SEND_SERVER_HELLO_DONE);
         }
+#endif /* HITLS_TLS_FEATURE_PSK */
         return HS_ChangeState(ctx, TRY_SEND_SERVER_KEY_EXCHANGE);
     }
     return HS_ChangeState(ctx, TRY_SEND_CERTIFICATE);
 }
-
+#if defined(HITLS_TLS_PROTO_TLS13) && defined(HITLS_TLS_PROTO_TLS_BASIC)
 static int32_t DowngradeServerRandom(TLS_Ctx *ctx)
 {
-    /** Obtain server information */
+    /* Obtain server information */
     int32_t ret = HITLS_SUCCESS;
     HS_Ctx *hsCtx = (HS_Ctx *)ctx->hsCtx;
     uint32_t downgradeRandomLen = 0;
     uint32_t offset = 0;
-    /** Obtain the random part to be rewritten */
+    /* Obtain the random part to be rewritten */
     if (ctx->negotiatedInfo.version == HITLS_VERSION_TLS12) {
         const uint8_t *downgradeRandom = HS_GetTls12DowngradeRandom(&downgradeRandomLen);
-        /** Some positions need to be rewritten to obtain random */
+        /* Some positions need to be rewritten to obtain random */
         offset = HS_RANDOM_SIZE - downgradeRandomLen;
-        /** Rewrite the last eight bytes of the random */
+        /* Rewrite the last eight bytes of the random */
         ret = memcpy_s(hsCtx->serverRandom + offset, HS_RANDOM_DOWNGRADE_SIZE, downgradeRandom, downgradeRandomLen);
     }
     return ret;
 }
-
+#endif /* HITLS_TLS_PROTO_TLS13 && HITLS_TLS_PROTO_TLS_BASIC */
 int32_t ServerSendServerHelloProcess(TLS_Ctx *ctx)
 {
     int32_t ret = HITLS_SUCCESS;
-    /** Obtain server information */
+    /* Obtain server information */
     HS_Ctx *hsCtx = (HS_Ctx *)ctx->hsCtx;
-    TLS_Config *tlsConfig = &ctx->config.tlsConfig;
 
-    /** Determine whether to pack a message */
+    /* Determine whether to pack a message */
     if (hsCtx->msgLen == 0) {
+#ifdef HITLS_TLS_FEATURE_SESSION
         ret = ServerPrepareSessionId(ctx);
         if (ret != HITLS_SUCCESS) {
             return ret;
         }
-
-        ret = SAL_CRYPT_Rand(hsCtx->serverRandom, HS_RANDOM_SIZE);
+#endif
+        ret = SAL_CRYPT_Rand(LIBCTX_FROM_CTX(ctx), hsCtx->serverRandom, HS_RANDOM_SIZE);
         if (ret != HITLS_SUCCESS) {
             BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15548, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
                 "get server random error.", 0, 0, 0, 0);
             return ret;
         }
-        /** If TLS 1.3 is supported but an earlier version is negotiated, the last eight bits of the random number need
+#if defined(HITLS_TLS_PROTO_TLS13) && defined(HITLS_TLS_PROTO_TLS_BASIC)
+        TLS_Config *tlsConfig = &ctx->config.tlsConfig;
+        /* If TLS 1.3 is supported but an earlier version is negotiated, the last eight bits of the random number need
          * to be rewritten */
         if (tlsConfig->maxVersion == HITLS_VERSION_TLS13) {
             ret = DowngradeServerRandom(ctx);
             if (ret != EOK) {
                 BSL_ERR_PUSH_ERROR(HITLS_MEMCPY_FAIL);
-                BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15855, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+                BSL_LOG_BINLOG_FIXLEN(BINLOG_ID16248, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
                     "copy down grade random fail.", 0, 0, 0, 0);
                 return HITLS_MEMCPY_FAIL;
             }
         }
-
-        /** Set the verify information. */
-        ret = VERIFY_SetHash(hsCtx->verifyCtx, ctx->negotiatedInfo.cipherSuiteInfo.hashAlg);
+#endif /* HITLS_TLS_PROTO_TLS13 && HITLS_TLS_PROTO_TLS_BASIC */
+        /* Set the verify information. */
+        ret = VERIFY_SetHash(LIBCTX_FROM_CTX(ctx), ATTRIBUTE_FROM_CTX(ctx),
+            hsCtx->verifyCtx, ctx->negotiatedInfo.cipherSuiteInfo.hashAlg);
         if (ret != HITLS_SUCCESS) {
             BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15549, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN, "set verify info fail.",
                 0, 0, 0, 0);
@@ -187,24 +198,33 @@ int32_t ServerSendServerHelloProcess(TLS_Ctx *ctx)
 
     return ServerChangeStateAfterSendHello(ctx);
 }
-
+#endif /* HITLS_TLS_PROTO_TLS_BASIC || HITLS_TLS_PROTO_DTLS12 */
+#ifdef HITLS_TLS_PROTO_TLS13
 static int32_t Tls13ServerPrepareKeyShare(TLS_Ctx *ctx)
 {
     KeyShareParam *keyShare = &ctx->hsCtx->kxCtx->keyExchParam.share;
     KeyExchCtx *kxCtx = ctx->hsCtx->kxCtx;
-    if ((kxCtx->peerPubkey == NULL) || /** If the peer public key is empty, keyshare does not need to be packed */
-        (kxCtx->key != NULL)) { /** key is not empty, it indicates that the keyshare has been calculated and does not
+    if ((kxCtx->peerPubkey == NULL) || /* If the peer public key is empty, keyshare does not need to be packed */
+        (kxCtx->key != NULL)) { /* key is not empty, it indicates that the keyshare has been calculated and does not
                                    need to be calculated again */
         return HITLS_SUCCESS;
     }
-
+    const TLS_GroupInfo *groupInfo = ConfigGetGroupInfo(&ctx->config.tlsConfig, keyShare->group);
+    if (groupInfo == NULL) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID16243, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+            "group info not found", 0, 0, 0, 0);
+        return HITLS_INVALID_INPUT;
+    }
+    if (groupInfo->isKem) {
+        return HITLS_SUCCESS;
+    }
     HITLS_ECParameters curveParams = {
         .type = HITLS_EC_CURVE_TYPE_NAMED_CURVE,
         .param.namedcurve = keyShare->group,
     };
     HITLS_CRYPT_Key *key = NULL;
-    /* The ecdhe and dhe groups can invoke the same interface to generate keys. */
-    key = SAL_CRYPT_GenEcdhKeyPair(&curveParams);
+     /* The ecdhe and dhe groups can invoke the same interface to generate keys. */
+    key = SAL_CRYPT_GenEcdhKeyPair(ctx, &curveParams);
     if (key == NULL) {
         BSL_ERR_PUSH_ERROR(HITLS_CRYPT_ERR_ENCODE_ECDH_KEY);
         BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15552, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
@@ -219,28 +239,37 @@ static int32_t Tls13ServerPrepareKeyShare(TLS_Ctx *ctx)
 int32_t Tls13ServerSendServerHelloProcess(TLS_Ctx *ctx)
 {
     int32_t ret = HITLS_SUCCESS;
-    /** Obtain server information */
+    /* Obtain server information */
     HS_Ctx *hsCtx = (HS_Ctx *)ctx->hsCtx;
-
-    /** Determine whether to pack a message */
+    /* Determine whether to pack a message */
     if (hsCtx->msgLen == 0) {
         ret = Tls13ServerPrepareKeyShare(ctx);
         if (ret != HITLS_SUCCESS) {
             return ret;
         }
 
-        ret = SAL_CRYPT_Rand(hsCtx->serverRandom, HS_RANDOM_SIZE);
+        ret = SAL_CRYPT_Rand(LIBCTX_FROM_CTX(ctx), hsCtx->serverRandom, HS_RANDOM_SIZE);
         if (ret != HITLS_SUCCESS) {
             BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15553, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
                 "get server random error.", 0, 0, 0, 0);
             return ret;
         }
 
-        /** Set the verify information */
-        ret = VERIFY_SetHash(hsCtx->verifyCtx, ctx->negotiatedInfo.cipherSuiteInfo.hashAlg);
+        /* Set the verify information */
+        ret = VERIFY_SetHash(LIBCTX_FROM_CTX(ctx), ATTRIBUTE_FROM_CTX(ctx),
+            hsCtx->verifyCtx, ctx->negotiatedInfo.cipherSuiteInfo.hashAlg);
         if (ret != HITLS_SUCCESS) {
             BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15554, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN, "set verify info fail.",
                 0, 0, 0, 0);
+            return ret;
+        }
+
+        /* Server secret derivation */
+        ret = HS_TLS13CalcServerHelloProcessSecret(ctx);
+        if (ret != HITLS_SUCCESS) {
+            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID16190, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+                "Derive-Sevret failed.", 0, 0, 0, 0);
+            ctx->method.sendAlert(ctx, ALERT_LEVEL_FATAL, ALERT_ILLEGAL_PARAMETER);
             return ret;
         }
 
@@ -248,14 +277,6 @@ int32_t Tls13ServerSendServerHelloProcess(TLS_Ctx *ctx)
         if (ret != HITLS_SUCCESS) {
             BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15555, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
                 "pack tls1.3 server hello msg fail.", 0, 0, 0, 0);
-            return ret;
-        }
-        /** Server secret derivation */
-        ret = HS_TLS13CalcServerHelloProcessSecret(ctx);
-        if (ret != HITLS_SUCCESS) {
-            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15561, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-                "Derive-Sevret failed.", 0, 0, 0, 0);
-            ctx->method.sendAlert(ctx, ALERT_LEVEL_FATAL, ALERT_ILLEGAL_PARAMETER);
             return ret;
         }
     }
@@ -273,7 +294,7 @@ int32_t Tls13ServerSendServerHelloProcess(TLS_Ctx *ctx)
     BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15556, BSL_LOG_LEVEL_INFO, BSL_LOG_BINLOG_TYPE_RUN,
         "send tls1.3 server hello msg success.", 0, 0, 0, 0);
 
-    /** In the middlebox mode, If the scenario is not hrr, the CCS needs to be sent before the EE */
+    /* In the middlebox mode, If the scenario is not hrr, the CCS needs to be sent before the EE */
     if (!ctx->hsCtx->haveHrr) {
         ctx->hsCtx->ccsNextState = TRY_SEND_ENCRYPTED_EXTENSIONS;
         return HS_ChangeState(ctx, TRY_SEND_CHANGE_CIPHER_SPEC);
@@ -284,11 +305,11 @@ int32_t Tls13ServerSendServerHelloProcess(TLS_Ctx *ctx)
 int32_t Tls13ServerSendHelloRetryRequestProcess(TLS_Ctx *ctx)
 {
     int32_t ret = HITLS_SUCCESS;
-    /** Obtain the server information */
+    /* Obtain the server information */
     HS_Ctx *hsCtx = (HS_Ctx *)ctx->hsCtx;
     hsCtx->haveHrr = true; /* update state */
 
-    /** Check whether the message needs to be packed */
+    /* Check whether the message needs to be packed */
     if (hsCtx->msgLen == 0) {
         uint32_t hrrRandomLen = 0;
         const uint8_t *hrrRandom = HS_GetHrrRandom(&hrrRandomLen);
@@ -328,3 +349,5 @@ int32_t Tls13ServerSendHelloRetryRequestProcess(TLS_Ctx *ctx)
     ctx->hsCtx->ccsNextState = TRY_RECV_CLIENT_HELLO;
     return HS_ChangeState(ctx, TRY_SEND_CHANGE_CIPHER_SPEC);
 }
+#endif /* HITLS_TLS_PROTO_TLS13 */
+#endif /* HITLS_TLS_HOST_SERVER */

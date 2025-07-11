@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include "crypt_local_types.h"
+#include "bsl_params.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,6 +53,17 @@ CRYPT_RSA_Ctx *CRYPT_RSA_NewCtx(void); // create key structure
 
 /**
  * @ingroup rsa
+ * @brief Allocate rsa context memory space.
+ * 
+ * @param libCtx [IN] Library context
+ *
+ * @retval (CRYPT_RSA_Ctx *) Pointer to the memory space of the allocated context
+ * @retval NULL              Invalid null pointer.
+ */
+CRYPT_RSA_Ctx *CRYPT_RSA_NewCtxEx(void *libCtx); 
+
+/**
+ * @ingroup rsa
  * @brief Copy the RSA context. After the duplication is complete, call the CRYPT_RSA_FreeCtx to release the memory.
  *
  * @param ctx [IN] RSA context
@@ -70,7 +82,7 @@ CRYPT_RSA_Ctx *CRYPT_RSA_DupCtx(CRYPT_RSA_Ctx *keyCtx);
  * @retval (CRYPT_RSA_Para *) Pointer to the allocated memory space of the structure
  * @retval NULL               Invalid null pointer.
  */
-CRYPT_RSA_Para *CRYPT_RSA_NewPara(const CRYPT_RsaPara *para);
+CRYPT_RSA_Para *CRYPT_RSA_NewPara(const BSL_Param *para);
 
 /**
  * @ingroup rsa
@@ -101,7 +113,7 @@ void CRYPT_RSA_FreeCtx(CRYPT_RSA_Ctx *ctx);
  * @retval CRYPT_MEM_ALLOC_FAIL     internal memory allocation error
  * @retval CRYPT_SUCCESS            set successfully.
  */
-int32_t CRYPT_RSA_SetPara(CRYPT_RSA_Ctx *ctx, const CRYPT_RSA_Para *para);
+int32_t CRYPT_RSA_SetPara(CRYPT_RSA_Ctx *ctx, const BSL_Param *para);
 
 /**
  * @ingroup rsa
@@ -114,16 +126,7 @@ int32_t CRYPT_RSA_SetPara(CRYPT_RSA_Ctx *ctx, const CRYPT_RSA_Para *para);
  */
 uint32_t CRYPT_RSA_GetBits(const CRYPT_RSA_Ctx *ctx);
 
-/**
- * @ingroup rsa
- * @brief Obtain the maximum length of RSA signature data.
- *
- * @param ctx [IN] Maximum length of the RSA signature data that is expected to be obtained
- *
- * @retval 0: The input is incorrect or the corresponding key structure does not contain valid key information.
- * @retval uint32_t: Maximum length of the signature data
- */
-uint32_t CRYPT_RSA_GetSignLen(const CRYPT_RSA_Ctx *ctx);
+#ifdef HITLS_CRYPTO_RSA_GEN
 /**
  * @ingroup rsa
  * @brief Generate the RSA key pair.
@@ -137,7 +140,9 @@ uint32_t CRYPT_RSA_GetSignLen(const CRYPT_RSA_Ctx *ctx);
  * @retval CRYPT_SUCCESS            The key pair is successfully generated.
  */
 int32_t CRYPT_RSA_Gen(CRYPT_RSA_Ctx *ctx);
+#endif
 
+#if defined(HITLS_CRYPTO_RSA_ENCRYPT) || defined(HITLS_CRYPTO_RSA_VERIFY) || defined(HITLS_CRYPTO_RSA_SIGN)
 /**
  * @ingroup rsa
  * @brief RSA public key encryption
@@ -159,6 +164,7 @@ int32_t CRYPT_RSA_Gen(CRYPT_RSA_Ctx *ctx);
  */
 int32_t  CRYPT_RSA_PubEnc(const CRYPT_RSA_Ctx *ctx, const uint8_t *input, uint32_t inputLen,
     uint8_t *out, uint32_t *outLen);
+#endif
 
 /**
  * @ingroup rsa
@@ -188,7 +194,7 @@ int32_t CRYPT_RSA_PrvDec(const CRYPT_RSA_Ctx *ctx, const uint8_t *input, uint32_
  * @brief RSA Set the private key information.
  *
  * @param ctx [OUT] rsa context structure
- * @param prv [IN] Private key data
+ * @param para [IN] Private key data
  *
  * @retval CRYPT_NULL_INPUT             Error null pointer input
  * @retval CRYPT_RSA_ERR_KEY_BITS       The key length does not meet the requirements.
@@ -198,14 +204,14 @@ int32_t CRYPT_RSA_PrvDec(const CRYPT_RSA_Ctx *ctx, const uint8_t *input, uint32_
  * @retval BN error                     An error occurs in the internal BigNum operation.
  * @retval CRYPT_SUCCESS                The private key is successfully set.
  */
-int32_t CRYPT_RSA_SetPrvKey(CRYPT_RSA_Ctx *ctx, const CRYPT_RsaPrv *prv);
+int32_t CRYPT_RSA_SetPrvKey(CRYPT_RSA_Ctx *ctx, const BSL_Param *para);
 
 /**
  * @ingroup rsa
  * @brief RSA Set the public key information.
  *
  * @param ctx [OUT] RSA context structure
- * @param pub [IN] Public key data
+ * @param para [IN] Public key data
  *
  * @retval CRYPT_NULL_INPUT          Error null pointer input
  * @retval CRYPT_RSA_ERR_KEY_BITS    The key length does not meet the requirements.
@@ -214,34 +220,79 @@ int32_t CRYPT_RSA_SetPrvKey(CRYPT_RSA_Ctx *ctx, const CRYPT_RsaPrv *prv);
  * @retval BN error                  An error occurs in the internal BigNum operation.
  * @retval CRYPT_SUCCESS             The public key is successfully set.
  */
-int32_t CRYPT_RSA_SetPubKey(CRYPT_RSA_Ctx *ctx, const CRYPT_RsaPub *pub);
+int32_t CRYPT_RSA_SetPubKey(CRYPT_RSA_Ctx *ctx, const BSL_Param *para);
 
 /**
  * @ingroup rsa
  * @brief RSA Obtain the private key information.
  *
  * @param ctx [IN] RSA context structure
- * @param prv [OUT] Private key data
+ * @param para [OUT] Private key data
  *
  * @retval CRYPT_NULL_INPUT Invalid null pointer input
  * @retval BN error         An error occurs in the internal BigNum operation.
  * @retval CRYPT_SUCCESS    The private key is obtained successfully.
  */
-int32_t CRYPT_RSA_GetPrvKey(const CRYPT_RSA_Ctx *ctx, CRYPT_RsaPrv *prv);
+int32_t CRYPT_RSA_GetPrvKey(const CRYPT_RSA_Ctx *ctx, BSL_Param *para);
 
 /**
  * @ingroup rsa
  * @brief RSA Obtain the public key information.
  *
  * @param ctx [IN] RSA context structure
- * @param pub [OUT] Public key data
+ * @param para [OUT] Public key data
  *
  * @retval CRYPT_NULL_INPUT Invalid null pointer input
  * @retval BN error         An error occurs in the internal BigNum operation.
  * @retval CRYPT_SUCCESS    The public key is obtained successfully.
  */
-int32_t CRYPT_RSA_GetPubKey(const CRYPT_RSA_Ctx *ctx, CRYPT_RsaPub *pub);
+int32_t CRYPT_RSA_GetPubKey(const CRYPT_RSA_Ctx *ctx, BSL_Param *para);
 
+int32_t CRYPT_RSA_Ctrl(CRYPT_RSA_Ctx *ctx, int32_t opt, void *val, uint32_t len);
+
+#ifdef HITLS_CRYPTO_RSA_BSSA
+
+#ifdef HITLS_CRYPTO_RSA_SIGN
+/**
+ * @ingroup RSA
+ * @brief RSA blind operation for blind signature
+ *
+ * @param ctx [IN] RSA Context structure
+ * @param algId [IN] hash Id for input
+ * @param input [IN] Message to be blinded
+ * @param inputLen [IN] Length of input message
+ * @param out [OUT] Blinded message
+ * @param outLen [OUT] Length of blinded message
+ *
+ * @retval CRYPT_SUCCESS on success
+ *          For other error codes, see crypt_errno.h.
+ */
+int32_t CRYPT_RSA_Blind(CRYPT_RSA_Ctx *ctx, int32_t algId, const uint8_t *input, uint32_t inputLen,
+    uint8_t *out, uint32_t *outLen);
+#endif
+
+#ifdef HITLS_CRYPTO_RSA_VERIFY
+/**
+ * @ingroup RSA
+ * @brief RSA unblind operation for blind signature
+ *
+ * @param ctx [IN] RSA Context structure
+ * @param input [IN] Blind signature to be unblinded
+ * @param inputLen [IN] Length of blind signature
+ * @param out [OUT] Final unblinded signature
+ * @param outLen [OUT] Length of unblinded signature
+ *
+ * @retval CRYPT_SUCCESS on success
+ *          For other error codes, see crypt_errno.h.
+ */
+int32_t CRYPT_RSA_UnBlind(const CRYPT_RSA_Ctx *ctx, const uint8_t *input, uint32_t inputLen,
+    uint8_t *out, uint32_t *outLen);
+#endif
+
+#endif
+
+#ifdef HITLS_CRYPTO_RSA_EMSA_PSS
+#if defined(HITLS_CRYPTO_RSA_SIGN) || defined(HITLS_CRYPTO_RSA_BSSA)
 /**
  * @ingroup rsa
  * @brief Set the PSS for the original data.
@@ -266,7 +317,9 @@ int32_t CRYPT_RSA_GetPubKey(const CRYPT_RSA_Ctx *ctx, CRYPT_RsaPub *pub);
  */
 int32_t CRYPT_RSA_SetPss(const EAL_MdMethod *hashMethod, const EAL_MdMethod *mgfMethod, uint32_t keyBits,
     const uint8_t *salt, uint32_t saltLen, const uint8_t *data, uint32_t dataLen, uint8_t *pad, uint32_t padLen);
+#endif // HITLS_CRYPTO_RSA_SIGN || HITLS_CRYPTO_RSA_BSSA
 
+#ifdef HITLS_CRYPTO_RSA_VERIFY
 /**
  * @ingroup rsa
  * @brief Compare the original data from the PSS.
@@ -289,7 +342,10 @@ int32_t CRYPT_RSA_SetPss(const EAL_MdMethod *hashMethod, const EAL_MdMethod *mgf
  */
 int32_t CRYPT_RSA_VerifyPss(const EAL_MdMethod *hashMethod, const EAL_MdMethod *mgfMethod, uint32_t keyBits,
     uint32_t saltLen, const uint8_t *data, uint32_t dataLen, const uint8_t *pad, uint32_t padLen);
+#endif // HITLS_CRYPTO_RSA_VERIFY
+#endif // HITLS_CRYPTO_RSA_EMSA_PSS
 
+#ifdef HITLS_CRYPTO_RSA_EMSA_PKCSV15
 /**
  * @ingroup rsa
  * @brief Set pkcsv1.5 padding.
@@ -310,6 +366,7 @@ int32_t CRYPT_RSA_VerifyPss(const EAL_MdMethod *hashMethod, const EAL_MdMethod *
 int32_t CRYPT_RSA_SetPkcsV15Type1(CRYPT_MD_AlgId hashId, const uint8_t *data, uint32_t dataLen,
     uint8_t *pad, uint32_t padLen);
 
+#ifdef HITLS_CRYPTO_RSA_VERIFY
 /**
  * @ingroup rsa
  * @brief Verify pkcsv1.5 padding.
@@ -321,23 +378,47 @@ int32_t CRYPT_RSA_SetPkcsV15Type1(CRYPT_MD_AlgId hashId, const uint8_t *data, ui
  * @param dataLen [IN] Length of the original data
  *
  * @retval CRYPT_NULL_INPUT                 Invalid null pointer input
- * @retval CRYPT_RSA_ERR_INPUT_VALUE        Incorrect padding value.
+ * @retval CRYPT_RSA_ERR_PKCSV15_SALT_DATA  Incorrect padding value.
  * @retval CRYPT_SECUREC_FAIL               Security Function Failure
  * @retval CRYPT_RSA_BUFF_LEN_NOT_ENOUGH    The length required for padding does not match the input parameter.
- * @retval CRYPT_RSA_ERR_MD_ALGID           The hash algorithm ID is not supported.
+ * @retval CRYPT_RSA_ERR_INPUT_VALUE        The hash algorithm ID is not supported.
  * @retval CRYPT_SUCCESS                    Verify pkcsv1.5 is padded successfully.
  */
 int32_t CRYPT_RSA_VerifyPkcsV15Type1(CRYPT_MD_AlgId hashId, const uint8_t *pad, uint32_t padLen,
     const uint8_t *data, uint32_t dataLen);
+#endif // HITLS_CRYPTO_RSA_VERIFY
+#endif // HITLS_CRYPTO_RSA_EMSA_PKCSV15
 
-int32_t CRYPT_RSA_Ctrl(CRYPT_RSA_Ctx *ctx, CRYPT_PkeyCtrl opt, void *val, uint32_t len);
+#if defined(HITLS_CRYPTO_RSA_SIGN) || defined(HITLS_CRYPTO_RSA_VERIFY)
+/**
+ * @ingroup rsa
+ * @brief Obtain the maximum length of RSA signature data.
+ *
+ * @param ctx [IN] Maximum length of the RSA signature data that is expected to be obtained
+ *
+ * @retval 0        The input is incorrect or the corresponding key structure does not contain valid key information.
+ * @retval uint32_t Maximum length of the signature data
+ */
+uint32_t CRYPT_RSA_GetSignLen(const CRYPT_RSA_Ctx *ctx);
+#endif
 
-int32_t CRYPT_RSA_Verify(CRYPT_RSA_Ctx *ctx, const uint8_t *data, uint32_t dataLen,
+#ifdef HITLS_CRYPTO_RSA_VERIFY
+int32_t CRYPT_RSA_VerifyData(CRYPT_RSA_Ctx *ctx, const uint8_t *data, uint32_t dataLen,
     const uint8_t *sign, uint32_t signLen);
 
-int32_t CRYPT_RSA_Sign(CRYPT_RSA_Ctx *ctx, const uint8_t *data, uint32_t dataLen,
+int32_t CRYPT_RSA_Verify(CRYPT_RSA_Ctx *ctx, int32_t algId, const uint8_t *data, uint32_t dataLen,
+    const uint8_t *sign, uint32_t signLen);
+#endif
+
+#ifdef HITLS_CRYPTO_RSA_SIGN
+int32_t CRYPT_RSA_SignData(CRYPT_RSA_Ctx *ctx, const uint8_t *data, uint32_t dataLen,
     uint8_t *sign, uint32_t *signLen);
 
+int32_t CRYPT_RSA_Sign(CRYPT_RSA_Ctx *ctx, int32_t algId, const uint8_t *data, uint32_t dataLen,
+    uint8_t *sign, uint32_t *signLen);
+#endif
+
+#ifdef HITLS_CRYPTO_RSA_ENCRYPT
 /**
  * @ingroup rsa
  * @brief RSA public key encryption
@@ -360,7 +441,9 @@ int32_t CRYPT_RSA_Sign(CRYPT_RSA_Ctx *ctx, const uint8_t *data, uint32_t dataLen
 */
 int32_t CRYPT_RSA_Encrypt(CRYPT_RSA_Ctx *ctx, const uint8_t *data, uint32_t dataLen,
     uint8_t *out, uint32_t *outLen);
+#endif
 
+#ifdef HITLS_CRYPTO_RSA_DECRYPT
 /**
  * @ingroup rsa
  * @brief RSA private key decryption
@@ -383,6 +466,31 @@ int32_t CRYPT_RSA_Encrypt(CRYPT_RSA_Ctx *ctx, const uint8_t *data, uint32_t data
  */
 int32_t CRYPT_RSA_Decrypt(CRYPT_RSA_Ctx *ctx, const uint8_t *data, uint32_t dataLen,
     uint8_t *out, uint32_t *outLen);
+#endif
+
+#ifdef HITLS_CRYPTO_RSA_VERIFY
+/**
+ * @ingroup rsa
+ * @brief RSA public key decryption
+ *
+ * @param ctx [IN] RSA context structure
+ * @param data [IN] Information to be decrypted
+ * @param dataLen [IN] Length of the information to be decrypted
+ * @param out [OUT] Pointer to the output information after decryption.
+ * @param outLen [IN/OUT] Pointer to the length of the decrypted information.
+ *                        Before being transferred, the value must be set to the maximum length of the array.
+ *
+ * @retval CRYPT_NULL_INPUT                 Invalid null pointer input
+ * @retval CRYPT_RSA_NO_KEY_INFO            does not contain the key information.
+ * @retval CRYPT_RSA_PAD_NO_SET_ERROR       The padding type is not set.
+ * @retval CRYPT_RSA_BUFF_LEN_NOT_ENOUGH    The space is insufficient after decryption.
+ * @retval CRYPT_RSA_ERR_INPUT_VALUE        The input parameter does not meet the requirements.
+ * @retval CRYPT_MEM_ALLOC_FAIL             Memory allocation failure
+ * @retval Other error codes, for example, the CRYPT_RSA_UnPackPkcsV15Type1 de-padding function.
+ * @retval CRYPT_SUCCESS                    Decrypted Successfully
+ */
+int32_t CRYPT_RSA_Recover(CRYPT_RSA_Ctx *ctx, const uint8_t *data, uint32_t dataLen, uint8_t *out, uint32_t *outLen);
+#endif
 
 /**
  * @ingroup rsa
@@ -398,6 +506,8 @@ int32_t CRYPT_RSA_Decrypt(CRYPT_RSA_Ctx *ctx, const uint8_t *data, uint32_t data
  */
 int32_t CRYPT_RSA_Cmp(const CRYPT_RSA_Ctx *a, const CRYPT_RSA_Ctx *b);
 
+#ifdef HITLS_CRYPTO_RSAES_OAEP
+#ifdef HITLS_CRYPTO_RSA_ENCRYPT
 /**
  * @ingroup rsa
  * @brief oaep padding
@@ -417,9 +527,10 @@ int32_t CRYPT_RSA_Cmp(const CRYPT_RSA_Ctx *a, const CRYPT_RSA_Ctx *b);
  * @retval CRYPT_MEM_ALLOC_FAIL             Memory allocation failure
  * @retval CRYPT_RSA_BUFF_LEN_NOT_ENOUGH    Outbuf Insufficient
  * */
-int32_t CRYPT_RSA_SetPkcs1Oaep(const EAL_MdMethod *hashMethod, const EAL_MdMethod *mgfMethod, const uint8_t *in,
-    uint32_t inLen, const uint8_t *param, uint32_t paramLen, uint8_t *pad, uint32_t padLen);
+int32_t CRYPT_RSA_SetPkcs1Oaep(CRYPT_RSA_Ctx *ctx, const uint8_t *in, uint32_t inLen, uint8_t *pad, uint32_t padLen);
+#endif // HITLS_CRYPTO_RSA_ENCRYPT
 
+#ifdef HITLS_CRYPTO_RSA_DECRYPT
 /**
  * @ingroup rsa
  * @brief Verify the oaep padding.
@@ -441,23 +552,54 @@ int32_t CRYPT_RSA_SetPkcs1Oaep(const EAL_MdMethod *hashMethod, const EAL_MdMetho
  * */
 int32_t CRYPT_RSA_VerifyPkcs1Oaep(const EAL_MdMethod *hashMethod, const EAL_MdMethod *mgfMethod, const uint8_t *in,
     uint32_t inLen, const uint8_t *param, uint32_t paramLen, uint8_t *msg, uint32_t *msgLen);
+#endif // HITLS_CRYPTO_RSA_DECRYPT
+#endif // HITLS_CRYPTO_RSAES_OAEP
 
-int32_t CRYPT_RSA_SetPkcsV15Type2(const uint8_t *in, uint32_t inLen,
+#if defined(HITLS_CRYPTO_RSA_ENCRYPT) && \
+    (defined(HITLS_CRYPTO_RSAES_PKCSV15_TLS) || defined(HITLS_CRYPTO_RSAES_PKCSV15))
+int32_t CRYPT_RSA_SetPkcsV15Type2(void *libCtx, const uint8_t *in, uint32_t inLen,
     uint8_t *out, uint32_t outLen);
+#endif
 
-int32_t CRYPT_RSA_VerifyPkcsV15Type2(const uint8_t *in, uint32_t inLen,
-    uint8_t *out, uint32_t *outLen);
+#ifdef HITLS_CRYPTO_RSA_DECRYPT
+#ifdef HITLS_CRYPTO_RSAES_PKCSV15
+int32_t CRYPT_RSA_VerifyPkcsV15Type2(const uint8_t *in, uint32_t inLen, uint8_t *out, uint32_t *outLen);
+#endif
+
+#ifdef HITLS_CRYPTO_RSAES_PKCSV15_TLS
+int32_t CRYPT_RSA_VerifyPkcsV15Type2TLS(const uint8_t *in, uint32_t inLen, uint8_t *out, uint32_t *outLen);
+#endif
+#endif // HITLS_CRYPTO_RSA_DECRYPT
 
 /**
- * @ingroup RSA
- * @brief RSA get security bits
+ * @ingroup rsa
+ * @brief rsa get security bits
  *
- * @param ctx [IN] RSA Context structure
+ * @param ctx [IN] rsa Context structure
  *
  * @retval security bits
  */
 int32_t CRYPT_RSA_GetSecBits(const CRYPT_RSA_Ctx *ctx);
 
+#ifdef HITLS_CRYPTO_PROVIDER
+/**
+ * @ingroup RSA
+ * @brief RSA import key
+ *
+ * @param ctx [IN/OUT] RSA context structure
+ * @param params [IN] parameters
+ */
+int32_t CRYPT_RSA_Import(CRYPT_RSA_Ctx *ctx, const BSL_Param *params);
+
+/**
+ * @ingroup RSA
+ * @brief RSA export key
+ *
+ * @param ctx [IN] RSA context structure
+ * @param params [IN/OUT] key parameters
+ */
+int32_t CRYPT_RSA_Export(const CRYPT_RSA_Ctx *ctx, BSL_Param *params);
+#endif // HITLS_CRYPTO_PROVIDER
 
 #ifdef __cplusplus
 }

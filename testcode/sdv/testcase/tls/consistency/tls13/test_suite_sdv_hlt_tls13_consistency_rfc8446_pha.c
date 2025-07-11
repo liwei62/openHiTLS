@@ -85,7 +85,7 @@ static void Test_FinishToAPP(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len, uint3
     memset_s(data, bufSize, 0, bufSize);
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
 
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -117,7 +117,7 @@ static void Test_ServerHello_Add_PhaExtensions(
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
     ASSERT_EQ(memcpy_s(&data[*len], bufSize - *len, &posthandshake, sizeof(posthandshake)), EOK);
     *len += sizeof(posthandshake);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -143,7 +143,7 @@ static void Test_CertificateRequest_Ctx_Zero(HITLS_Ctx *ctx, uint8_t *data, uint
     frameMsg.body.hsMsg.body.certificateReq.certificateReqCtxSize.data = 0;
 
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -169,7 +169,7 @@ static void Test_Certificate_Ctx_Zero(HITLS_Ctx *ctx, uint8_t *data, uint32_t *l
     frameMsg.body.hsMsg.body.certificate.certificateReqCtxSize.data = 0;
 
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -191,10 +191,10 @@ static void Test_Certificate_Ctx_NotSame(HITLS_Ctx *ctx, uint8_t *data, uint32_t
     ASSERT_EQ(frameMsg.body.hsMsg.type.data, CERTIFICATE);
 
     frameMsg.body.hsMsg.body.certificate.certificateReqCtx.state = ASSIGNED_FIELD;
-    *(frameMsg.body.hsMsg.body.certificate.certificateReqCtx.data) = 123;
+    *(frameMsg.body.hsMsg.body.certificate.certificateReqCtx.data) += 1;
 
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -216,10 +216,10 @@ static void Test_Finish_Error(HITLS_Ctx *ctx, uint8_t *data, uint32_t *len, uint
     ASSERT_EQ(frameMsg.body.hsMsg.type.data, FINISHED);
 
     frameMsg.body.hsMsg.body.finished.verifyData.state = ASSIGNED_FIELD;
-    *(frameMsg.body.hsMsg.body.finished.verifyData.data) = 123;
+    *(frameMsg.body.hsMsg.body.finished.verifyData.data) += 1;
 
     FRAME_PackRecordBody(&frameType, &frameMsg, data, bufSize, len);
-exit:
+EXIT:
     FRAME_CleanMsg(&frameType, &frameMsg);
     return;
 }
@@ -247,7 +247,6 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_PHA_FUNC_TC001()
     ASSERT_TRUE(config_c != NULL);
     HLT_SetPostHandshakeAuth(config_c, true);
     HLT_SetClientVerifySupport(config_c, true);
-
     HLT_Tls_Res *serverRes = HLT_ProcessTlsAccept(remoteProcess, TLS1_3, config_s, NULL);
     ASSERT_TRUE(serverRes != NULL);
 
@@ -264,7 +263,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_PHA_FUNC_TC001()
     ASSERT_TRUE(readbytes == sizeof(src));
     ASSERT_TRUE(memcmp(src, dest, readbytes) == 0);
     memset_s(dest, READ_BUF_SIZE, 0, READ_BUF_SIZE);
-exit:
+EXIT:
     HLT_FreeAllProcess();
     return;
 }
@@ -325,8 +324,8 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC002(void)
     clientRes = HLT_ProcessTlsConnect(remoteProcess, TLS1_3, clientConfig, NULL);
     ASSERT_TRUE(clientRes == NULL);
 
-    ASSERT_EQ(HLT_GetTlsAcceptResult(serverRes), 0);
-exit:
+    ASSERT_TRUE(HLT_GetTlsAcceptResult(serverRes) != 0);
+EXIT:
     HLT_FreeAllProcess();
     ClearWrapper();
 }
@@ -387,8 +386,8 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC003(void)
     clientRes = HLT_ProcessTlsConnect(remoteProcess, TLS1_3, clientConfig, NULL);
     ASSERT_TRUE(clientRes == NULL);
 
-    ASSERT_EQ(HLT_GetTlsAcceptResult(serverRes), 0);
-exit:
+    ASSERT_TRUE(HLT_GetTlsAcceptResult(serverRes) != 0);
+EXIT:
     HLT_FreeAllProcess();
     ClearWrapper();
 }
@@ -464,7 +463,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC004(void)
     // The client returns alert
     ASSERT_TRUE(HLT_RpcTlsRead(remoteProcess, clientRes->sslId, readBuf, READ_BUF_SIZE, &readLen) ==
                 HITLS_MSG_HANDLE_INVALID_CERT_REQ_CTX);
-exit:
+EXIT:
     ClearWrapper();
     HLT_FreeAllProcess();
 }
@@ -545,7 +544,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC005(void)
     // The server returns alert
     ASSERT_EQ(HLT_RpcTlsRead(remoteProcess, serverRes->sslId, readBuf, READ_BUF_SIZE, &readLen),
         HITLS_MSG_HANDLE_INVALID_CERT_REQ_CTX);
-exit:
+EXIT:
     ClearWrapper();
     HLT_FreeAllProcess();
 }
@@ -627,7 +626,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC006(void)
     // The server returns alert
     ASSERT_EQ(HLT_RpcTlsRead(remoteProcess, serverRes->sslId, readBuf, READ_BUF_SIZE, &readLen),
         HITLS_MSG_HANDLE_INVALID_CERT_REQ_CTX);
-exit:
+EXIT:
     ClearWrapper();
     HLT_FreeAllProcess();
 }
@@ -708,7 +707,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC007(void)
     ASSERT_TRUE(HLT_TlsRead(serverRes->ssl, readBuf, READ_BUF_SIZE, &readLen) == 0);
     ASSERT_TRUE(readLen == strlen(writeBuf));
     ASSERT_TRUE(memcmp(writeBuf, readBuf, readLen) == 0);
-exit:
+EXIT:
     HLT_FreeAllProcess();
 }
 /* END_CASE */
@@ -789,7 +788,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC008(void)
     // The server returns alert
     ASSERT_EQ(HLT_RpcTlsRead(remoteProcess, serverRes->sslId, readBuf, READ_BUF_SIZE, &readLen),
         HITLS_MSG_HANDLE_VERIFY_FINISHED_FAIL);
-exit:
+EXIT:
     ClearWrapper();
     HLT_FreeAllProcess();
 }
@@ -823,13 +822,13 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC009()
     Process *localProcess = NULL;
     Process *remoteProcess = NULL;
     HLT_FD sockFd = {0};
+    int32_t serverConfigId = 0;
 
     localProcess = HLT_InitLocalProcess(HITLS);
     ASSERT_TRUE(localProcess != NULL);
     remoteProcess = HLT_CreateRemoteProcess(HITLS);
     ASSERT_TRUE(remoteProcess != NULL);
 
-    int32_t serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
     void *clientConfig = HLT_TlsNewCtx(version);
     ASSERT_TRUE(clientConfig != NULL);
 
@@ -838,7 +837,11 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC009()
     HLT_Ctx_Config *serverCtxConfig = HLT_NewCtxConfig(NULL, "SERVER");
     ASSERT_TRUE(clientCtxConfig != NULL);
     ASSERT_TRUE(serverCtxConfig != NULL);
-
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    serverConfigId = HLT_RpcProviderTlsNewCtx(remoteProcess, version, false, NULL, NULL, NULL, 0, NULL);
+#else
+    serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
+#endif
     // Set the client support post-handshake extension
     clientCtxConfig->isSupportClientVerify = true;
     clientCtxConfig->isSupportPostHandshakeAuth = true;
@@ -915,7 +918,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC009()
     HLT_RpcTlsClose(remoteProcess, serverSslId);
     HLT_RpcCloseFd(remoteProcess, sockFd.peerFd, remoteProcess->connType);
     HLT_CloseFd(sockFd.srcFd, localProcess->connType);
-exit:
+EXIT:
     HLT_FreeAllProcess();
 }
 /* END_CASE */
@@ -947,13 +950,13 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC011()
     Process *localProcess = NULL;
     Process *remoteProcess = NULL;
     HLT_FD sockFd = {0};
+    int32_t serverConfigId = 0;
 
     localProcess = HLT_InitLocalProcess(HITLS);
     ASSERT_TRUE(localProcess != NULL);
     remoteProcess = HLT_CreateRemoteProcess(HITLS);
     ASSERT_TRUE(remoteProcess != NULL);
 
-    int32_t serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
     void *clientConfig = HLT_TlsNewCtx(version);
     ASSERT_TRUE(clientConfig != NULL);
 
@@ -962,7 +965,11 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC011()
     HLT_Ctx_Config *serverCtxConfig = HLT_NewCtxConfig(NULL, "SERVER");
     ASSERT_TRUE(clientCtxConfig != NULL);
     ASSERT_TRUE(serverCtxConfig != NULL);
-
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    serverConfigId = HLT_RpcProviderTlsNewCtx(remoteProcess, version, false, NULL, NULL, NULL, 0, NULL);
+#else
+    serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
+#endif
     // Configure the server not to allow the client to send an empty certificate
     // Configure the client and server to support post-handshake extension
     clientCtxConfig->isSupportClientVerify = true;
@@ -1039,7 +1046,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC011()
     HLT_RpcTlsClose(remoteProcess, serverSslId);
     HLT_RpcCloseFd(remoteProcess, sockFd.peerFd, remoteProcess->connType);
     HLT_CloseFd(sockFd.srcFd, localProcess->connType);
-exit:
+EXIT:
     HLT_FreeAllProcess();
 }
 /* END_CASE */
@@ -1071,13 +1078,13 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC012()
     Process *localProcess = NULL;
     Process *remoteProcess = NULL;
     HLT_FD sockFd = {0};
+    int32_t serverConfigId = 0;
 
     localProcess = HLT_InitLocalProcess(HITLS);
     ASSERT_TRUE(localProcess != NULL);
     remoteProcess = HLT_CreateRemoteProcess(HITLS);
     ASSERT_TRUE(remoteProcess != NULL);
 
-    int32_t serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
     void *clientConfig = HLT_TlsNewCtx(version);
     ASSERT_TRUE(clientConfig != NULL);
 
@@ -1086,7 +1093,11 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC012()
     HLT_Ctx_Config *serverCtxConfig = HLT_NewCtxConfig(NULL, "SERVER");
     ASSERT_TRUE(clientCtxConfig != NULL);
     ASSERT_TRUE(serverCtxConfig != NULL);
-
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    serverConfigId = HLT_RpcProviderTlsNewCtx(remoteProcess, version, false, NULL, NULL, NULL, 0, NULL);
+#else
+    serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
+#endif
     // Configure the server to allow the client to send an empty certificate.
     // Configure the client and server to support post-handshake extension
     clientCtxConfig->isSupportClientVerify = true;
@@ -1163,7 +1174,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC012()
     HLT_RpcTlsClose(remoteProcess, serverSslId);
     HLT_RpcCloseFd(remoteProcess, sockFd.peerFd, remoteProcess->connType);
     HLT_CloseFd(sockFd.srcFd, localProcess->connType);
-exit:
+EXIT:
     HLT_FreeAllProcess();
 }
 /* END_CASE */
@@ -1194,13 +1205,13 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC013()
     Process *localProcess = NULL;
     Process *remoteProcess = NULL;
     HLT_FD sockFd = {0};
+    int32_t serverConfigId = 0;
 
     localProcess = HLT_InitLocalProcess(HITLS);
     ASSERT_TRUE(localProcess != NULL);
     remoteProcess = HLT_CreateRemoteProcess(HITLS);
     ASSERT_TRUE(remoteProcess != NULL);
 
-    int32_t serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
     void *clientConfig = HLT_TlsNewCtx(version);
     ASSERT_TRUE(clientConfig != NULL);
 
@@ -1209,7 +1220,11 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC013()
     HLT_Ctx_Config *serverCtxConfig = HLT_NewCtxConfig(NULL, "SERVER");
     ASSERT_TRUE(clientCtxConfig != NULL);
     ASSERT_TRUE(serverCtxConfig != NULL);
-
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    serverConfigId = HLT_RpcProviderTlsNewCtx(remoteProcess, version, false, NULL, NULL, NULL, 0, NULL);
+#else
+    serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
+#endif
     // Configure the client and server to support post-handshake extension
     clientCtxConfig->isSupportClientVerify = true;
     clientCtxConfig->isSupportPostHandshakeAuth = true;
@@ -1289,7 +1304,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC013()
     HLT_RpcTlsClose(remoteProcess, serverSslId);
     HLT_RpcCloseFd(remoteProcess, sockFd.peerFd, remoteProcess->connType);
     HLT_CloseFd(sockFd.srcFd, localProcess->connType);
-exit:
+EXIT:
     HLT_FreeAllProcess();
 }
 /* END_CASE */
@@ -1322,6 +1337,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC014()
     Process *localProcess = NULL;
     Process *remoteProcess = NULL;
     HLT_FD sockFd = {0};
+    int32_t serverConfigId = 0;
 
     localProcess = HLT_InitLocalProcess(HITLS);
     ASSERT_TRUE(localProcess != NULL);
@@ -1329,7 +1345,6 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC014()
     ASSERT_TRUE(remoteProcess != NULL);
 
     // Apply for and initialize the configuration file
-    int32_t serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
     void *clientConfig = HLT_TlsNewCtx(version);
     ASSERT_TRUE(clientConfig != NULL);
 
@@ -1337,7 +1352,11 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC014()
     HLT_Ctx_Config *serverCtxConfig = HLT_NewCtxConfig(NULL, "SERVER");
     ASSERT_TRUE(clientCtxConfig != NULL);
     ASSERT_TRUE(serverCtxConfig != NULL);
-
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    serverConfigId = HLT_RpcProviderTlsNewCtx(remoteProcess, version, false, NULL, NULL, NULL, 0, NULL);
+#else
+    serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
+#endif
     // Configure the server not to verify the peer certificate.
     // Configure the client and server to support post-handshake extension
     clientCtxConfig->isSupportClientVerify = true;
@@ -1419,7 +1438,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC014()
     HLT_RpcTlsClose(remoteProcess, serverSslId);
     HLT_RpcCloseFd(remoteProcess, sockFd.peerFd, remoteProcess->connType);
     HLT_CloseFd(sockFd.srcFd, localProcess->connType);
-exit:
+EXIT:
     HLT_FreeAllProcess();
 }
 /* END_CASE */
@@ -1455,13 +1474,13 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC015()
     Process *localProcess = NULL;
     Process *remoteProcess = NULL;
     HLT_FD sockFd = {0};
+    int32_t serverConfigId = 0;
 
     localProcess = HLT_InitLocalProcess(HITLS);
     ASSERT_TRUE(localProcess != NULL);
     remoteProcess = HLT_CreateRemoteProcess(HITLS);
     ASSERT_TRUE(remoteProcess != NULL);
 
-    int32_t serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
     void *clientConfig = HLT_TlsNewCtx(version);
     ASSERT_TRUE(clientConfig != NULL);
 
@@ -1470,7 +1489,11 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC015()
     HLT_Ctx_Config *serverCtxConfig = HLT_NewCtxConfig(NULL, "SERVER");
     ASSERT_TRUE(clientCtxConfig != NULL);
     ASSERT_TRUE(serverCtxConfig != NULL);
-
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    serverConfigId = HLT_RpcProviderTlsNewCtx(remoteProcess, version, false, NULL, NULL, NULL, 0, NULL);
+#else
+    serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
+#endif
     // Configure the client and server to support post-handshake extension
     clientCtxConfig->isSupportClientVerify = true;
     clientCtxConfig->isSupportPostHandshakeAuth = true;
@@ -1555,7 +1578,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC015()
     HLT_RpcTlsClose(remoteProcess, serverSslId);
     HLT_RpcCloseFd(remoteProcess, sockFd.peerFd, remoteProcess->connType);
     HLT_CloseFd(sockFd.srcFd, localProcess->connType);
-exit:
+EXIT:
     ClearWrapper();
     HLT_FreeAllProcess();
 }
@@ -1592,13 +1615,13 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC016()
     Process *localProcess = NULL;
     Process *remoteProcess = NULL;
     HLT_FD sockFd = {0};
+    int32_t serverConfigId = 0;
 
     localProcess = HLT_InitLocalProcess(HITLS);
     ASSERT_TRUE(localProcess != NULL);
     remoteProcess = HLT_CreateRemoteProcess(HITLS);
     ASSERT_TRUE(remoteProcess != NULL);
 
-    int32_t serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
     void *clientConfig = HLT_TlsNewCtx(version);
     ASSERT_TRUE(clientConfig != NULL);
 
@@ -1607,7 +1630,11 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC016()
     HLT_Ctx_Config *serverCtxConfig = HLT_NewCtxConfig(NULL, "SERVER");
     ASSERT_TRUE(clientCtxConfig != NULL);
     ASSERT_TRUE(serverCtxConfig != NULL);
-
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    serverConfigId = HLT_RpcProviderTlsNewCtx(remoteProcess, version, false, NULL, NULL, NULL, 0, NULL);
+#else
+    serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
+#endif
     // Configure the client and server to support post-handshake extension.
     clientCtxConfig->isSupportClientVerify = true;
     clientCtxConfig->isSupportPostHandshakeAuth = true;
@@ -1693,7 +1720,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC016()
     HLT_RpcTlsClose(remoteProcess, serverSslId);
     HLT_RpcCloseFd(remoteProcess, sockFd.peerFd, remoteProcess->connType);
     HLT_CloseFd(sockFd.srcFd, localProcess->connType);
-exit:
+EXIT:
     HLT_FreeAllProcess();
 }
 /* END_CASE */
@@ -1729,13 +1756,13 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC017()
     Process *localProcess = NULL;
     Process *remoteProcess = NULL;
     HLT_FD sockFd = {0};
+    int32_t serverConfigId = 0;
 
     localProcess = HLT_InitLocalProcess(HITLS);
     ASSERT_TRUE(localProcess != NULL);
     remoteProcess = HLT_CreateRemoteProcess(HITLS);
     ASSERT_TRUE(remoteProcess != NULL);
 
-    int32_t serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
     void *clientConfig = HLT_TlsNewCtx(version);
     ASSERT_TRUE(clientConfig != NULL);
 
@@ -1744,7 +1771,11 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC017()
     HLT_Ctx_Config *serverCtxConfig = HLT_NewCtxConfig(NULL, "SERVER");
     ASSERT_TRUE(clientCtxConfig != NULL);
     ASSERT_TRUE(serverCtxConfig != NULL);
-
+#ifdef HITLS_TLS_FEATURE_PROVIDER
+    serverConfigId = HLT_RpcProviderTlsNewCtx(remoteProcess, version, false, NULL, NULL, NULL, 0, NULL);
+#else
+    serverConfigId = HLT_RpcTlsNewCtx(remoteProcess, version, false);
+#endif
     // Configure the client and server to support post-handshake extension.
     clientCtxConfig->isSupportClientVerify = true;
     clientCtxConfig->isSupportPostHandshakeAuth = true;
@@ -1827,7 +1858,7 @@ void SDV_TLS_TLS13_RFC8446_CONSISTENCY_POSTHANDSHAKE_FUNC_TC017()
     HLT_RpcTlsClose(remoteProcess, serverSslId);
     HLT_RpcCloseFd(remoteProcess, sockFd.peerFd, remoteProcess->connType);
     HLT_CloseFd(sockFd.srcFd, localProcess->connType);
-exit:
+EXIT:
     HLT_FreeAllProcess();
 }
 /* END_CASE */

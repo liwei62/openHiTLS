@@ -18,15 +18,19 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "hitls_build.h"
 #include "hitls_config.h"
 #include "hitls_crypt_type.h"
 #include "hitls_cert_type.h"
+#include "hitls_type.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define TLS_EMPTY_RENEGOTIATION_INFO_SCSV 0x00ffu   /* renegotiation cipher suite */
+
+#define TLS_FALLBACK_SCSV 0x5600u   /* downgraded protocol cipher suite */
 
 /* cert request Type of the certificate requested */
 typedef enum {
@@ -37,7 +41,6 @@ typedef enum {
     CERT_TYPE_DSS_FIXED_DH = 4,
     /* rfc8422 5.5 */
     CERT_TYPE_ECDSA_SIGN = 64,
-    CERT_TYPE_SM2_SIGN = 64,
     CERT_TYPE_UNKNOWN = 255
 } CERT_Type;
 
@@ -105,38 +108,6 @@ typedef struct {
 } CipherSuiteCertType;
 
 /**
- * @brief   Obtain the list of supported signature hash algorithms.
- *
- * @param   len [OUT] Return the length of the signature hash algorithm list.
- *
- * @return  Pointer to the signature hash algorithm list
- */
-const SignSchemeInfo *CFG_GetSignSchemeList(uint32_t *len);
-
-/**
- * @brief   Obtain the list of supported signature hash algorithms for TLCP.
- *
- * @param   len [OUT] Return the length of the signature hash algorithm list.
- *
- * @return  Pointer to the signature hash algorithm list
- */
-const SignSchemeInfo *CFG_GetSignSchemeListTlcp(uint32_t *len);
-
-/**
- * @brief   Obtain the algorithm suite based on the specified information.
- *
- * @param   version [IN] TLS version
- * @param   kxAlgo [IN] Key exchange algorithm
- * @param   authAlgo [IN] Authentication algorithm
- * @param   cipherAlgo [IN] Symmetric-key algorithm
- * @param   hashAlgo [IN] Hash algorithm
- *
- * @return  cipher suite ID
- */
-uint16_t CFG_GetCipherSuite(uint16_t version, HITLS_KeyExchAlgo kxAlgo, HITLS_AuthAlgo authAlgo,
-    HITLS_CipherAlgo cipherAlgo, HITLS_HashAlgo hashAlgo);
-
-/**
  * @brief   Obtain the cipher suite information.
  *
  * @param   cipherSuite [IN] Cipher suite of the information to be obtained
@@ -174,7 +145,7 @@ bool CFG_CheckCipherSuiteVersion(uint16_t cipherSuite, uint16_t minVersion, uint
 /**
  * @brief  Obtain the signature algorithm and hash algorithm by combining the parameters of
  * the signature hash algorithm.
- * @param   version [IN] Secure communication version
+ * @param   ctx [IN] TLS context
  * @param   scheme [IN] Signature and hash algorithm combination
  * @param   signAlg [OUT] Signature algorithm
  * @param   hashAlg [OUT] Hash algorithm
@@ -182,7 +153,7 @@ bool CFG_CheckCipherSuiteVersion(uint16_t cipherSuite, uint16_t minVersion, uint
  * @retval  true Obtained successfully.
  * @retval  false Obtaining failed.
  */
-bool CFG_GetSignParamBySchemes(uint16_t version, HITLS_SignHashAlgo scheme, HITLS_SignAlgo *signAlg,
+bool CFG_GetSignParamBySchemes(const HITLS_Ctx *ctx, HITLS_SignHashAlgo scheme, HITLS_SignAlgo *signAlg,
     HITLS_HashAlgo *hashAlg);
 
 /**
@@ -202,7 +173,7 @@ uint8_t CFG_GetCertTypeByCipherSuite(uint16_t cipherSuite);
  *
  * @retval  group name
  */
-HITLS_NamedGroup CFG_GetEcdsaCurveNameBySchemes(HITLS_SignHashAlgo scheme);
+HITLS_NamedGroup CFG_GetEcdsaCurveNameBySchemes(const HITLS_Ctx *ctx, HITLS_SignHashAlgo scheme);
 
 #ifdef __cplusplus
 }

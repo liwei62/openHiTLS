@@ -19,6 +19,7 @@
 #include "hitls_build.h"
 #ifdef HITLS_BSL_OBJ
 
+#include <stdint.h>
 #include "bsl_obj.h"
 
 #ifdef __cplusplus
@@ -31,12 +32,6 @@ typedef enum {
 } BslOidFlag;
 
 typedef struct {
-    uint32_t octetLen;
-    char *octs;
-    uint32_t flags;
-} BslOidString;
-
-typedef struct {
     BslOidString strOid;
     const char *oidName;
     BslCid cid;
@@ -46,11 +41,7 @@ typedef struct {
     BslCid cid;
     int32_t min;
     int32_t max;
-} BslAsn1StrInfo;
-
-BslCid BSL_OBJ_GetCIDFromOid(BslOidString *oid);
-
-BslOidString *BSL_OBJ_GetOidFromCID(BslCid inputCid);
+} BslAsn1DnInfo;
 
 BslCid BSL_OBJ_GetHashIdFromSignId(BslCid signAlg);
 
@@ -60,7 +51,12 @@ const char *BSL_OBJ_GetOidNameFromOid(const BslOidString *oid);
 
 BslCid BSL_OBJ_GetSignIdFromHashAndAsymId(BslCid asymAlg, BslCid hashAlg);
 
-const BslAsn1StrInfo *BSL_OBJ_GetAsn1StrFromCid(BslCid cid);
+const BslAsn1DnInfo *BSL_OBJ_GetDnInfoFromCid(BslCid cid);
+
+void BSL_OBJ_FreeSignHashTable(void);
+
+void BSL_OBJ_FreeHashTable(void);
+
 #ifdef __cplusplus
 }
 #endif

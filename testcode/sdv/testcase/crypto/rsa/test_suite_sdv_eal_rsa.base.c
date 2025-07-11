@@ -36,9 +36,6 @@
 #define SUCCESS 0
 #define FAIL (-1)
 
-#define PKCSV15_SIZE ((uint32_t)sizeof(CRYPT_RSA_PkcsV15Para))
-#define OAEP_SIZE ((uint32_t)sizeof(CRYPT_RSA_OaepPara))
-#define PSS_SIZE ((uint32_t)sizeof(CRYPT_RSA_PssPara))
 
 #define RSA_MAX_KEYLEN 2048
 #define RSA_MIN_KEYLEN 128
@@ -51,6 +48,16 @@
 
 int32_t RandFunc(uint8_t *randNum, uint32_t randLen)
 {
+    const int maxNum = 255;
+    for (uint32_t i = 0; i < randLen; i++) {
+        randNum[i] = (uint8_t)(rand() % maxNum);
+    }
+    return 0;
+}
+
+int32_t RandFuncEx(void *libCtx, uint8_t *randNum, uint32_t randLen)
+{
+    (void)libCtx;
     const int maxNum = 255;
     for (uint32_t i = 0; i < randLen; i++) {
         randNum[i] = (uint8_t)(rand() % maxNum);
@@ -84,6 +91,18 @@ void PrvkeyFree(CRYPT_EAL_PkeyPrv *prvkey)
 static uint8_t g_RandBuf[TMP_BUFF_LEN];
 int32_t STUB_ReplaceRandom(uint8_t *r, uint32_t randLen)
 {
+    if (randLen > TMP_BUFF_LEN) {
+        return -1;
+    }
+    for (uint32_t i = 0; i < randLen; i++) {
+        r[i] = g_RandBuf[i];
+    }
+    return 0;
+}
+
+int32_t STUB_ReplaceRandomEx(void *libCtx, uint8_t *r, uint32_t randLen)
+{
+    (void)libCtx;
     if (randLen > TMP_BUFF_LEN) {
         return -1;
     }

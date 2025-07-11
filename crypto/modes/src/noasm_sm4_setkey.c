@@ -18,16 +18,34 @@
 
 #include "bsl_err_internal.h"
 #include "crypt_sm4.h"
-#include "crypt_modes.h"
+#include "modes_local.h"
 
-int32_t MODES_SM4_SetEncryptKey(MODE_CipherCtx *ctx, const uint8_t *key, uint32_t len)
+/**
+ * @brief Set the encryption key.
+ *
+ * @param ctx [IN] Mode handle
+ * @param key [IN] Encrypt key
+ * @param len [IN] Encrypt key length. Only 16 bytes (128 bits) are supported.
+ * @return Success: CRYPT_SUCCESS
+ *         Other error codes are returned if the operation fails.
+ */
+int32_t MODES_SM4_SetEncryptKey(MODES_CipherCommonCtx *ctx, const uint8_t *key, uint32_t len)
 {
-    return MODE_SetEncryptKey(ctx, key, len);
+    return MODES_SetEncryptKey(ctx, key, len);
 }
 
-int32_t MODES_SM4_SetDecryptKey(MODE_CipherCtx *ctx, const uint8_t *key, uint32_t len)
+/**
+ * @brief Set the decryption key.
+ *
+ * @param ctx [IN] Mode handle
+ * @param key [IN] Decrypt key
+ * @param len [IN] Decrypt key length. Only 16 bytes (128 bits) are supported.
+ * @return Success: CRYPT_SUCCESS
+ *         Other error codes are returned if the operation fails.
+ */
+int32_t MODES_SM4_SetDecryptKey(MODES_CipherCommonCtx *ctx, const uint8_t *key, uint32_t len)
 {
-    return MODE_SetDecryptKey(ctx, key, len);
+    return MODES_SetDecryptKey(ctx, key, len);
 }
 
 #endif // HITLS_CRYPTO_SM4

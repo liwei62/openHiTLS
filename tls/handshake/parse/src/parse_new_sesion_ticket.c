@@ -12,7 +12,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-
+#include "hitls_build.h"
+#if defined(HITLS_TLS_HOST_CLIENT) && defined(HITLS_TLS_FEATURE_SESSION_TICKET)
 #include "tls_binlog_id.h"
 #include "bsl_log_internal.h"
 #include "bsl_log.h"
@@ -22,136 +23,165 @@
 #include "hitls_error.h"
 #include "tls.h"
 #include "hs_msg.h"
+#include "hs_common.h"
+#include "hs_extensions.h"
 #include "parse_msg.h"
-
-static int32_t ParseTicketNonce(TLS_Ctx *ctx, const uint8_t *buf, uint32_t bufLen, NewSessionTicketMsg *msg)
+#include "parse_common.h"
+#include "parse_extensions.h"
+#ifdef HITLS_TLS_PROTO_TLS13
+static int32_t ParseTicketNonce(ParsePacket *pkt, NewSessionTicketMsg *msg)
 {
-    uint32_t ticketNonceSize;
-    uint8_t *ticketNonce = NULL;
-    uint32_t bufOffset = 0u;
-
-    if (bufLen < sizeof(uint8_t)) {
-        BSL_ERR_PUSH_ERROR(HITLS_PARSE_INVALID_MSG_LEN);
-        ctx->method.sendAlert(ctx, ALERT_LEVEL_FATAL, ALERT_DECODE_ERROR);
-        return HITLS_PARSE_INVALID_MSG_LEN;
+    uint8_t ticketNonceSize = 0;
+    const char *logStr = BINGLOG_STR("ParseOneByteLengthField fail");
+    int32_t ret = ParseOneByteLengthField(pkt, &ticketNonceSize, &msg->ticketNonce);
+    if (ret == HITLS_PARSE_INVALID_MSG_LEN) {
+        return ParseErrorProcess(pkt->ctx, HITLS_PARSE_INVALID_MSG_LEN, BINLOG_ID17010, logStr, ALERT_DECODE_ERROR);
+    } else if (ret == HITLS_MEMALLOC_FAIL) {
+        return ParseErrorProcess(pkt->ctx, HITLS_MEMALLOC_FAIL, BINLOG_ID17011, logStr, ALERT_INTERNAL_ERROR);
     }
 
-    ticketNonceSize = (uint32_t)buf[bufOffset];
-    bufOffset += sizeof(uint8_t);
-
-    if (ticketNonceSize == 0 || (bufLen < (bufOffset + ticketNonceSize))) {
-        BSL_ERR_PUSH_ERROR(HITLS_PARSE_INVALID_MSG_LEN);
-        ctx->method.sendAlert(ctx, ALERT_LEVEL_FATAL, ALERT_DECODE_ERROR);
-        return HITLS_PARSE_INVALID_MSG_LEN;
+    if (ticketNonceSize == 0) {
+        return ParseErrorProcess(pkt->ctx, HITLS_PARSE_INVALID_MSG_LEN, BINLOG_ID17012, logStr, ALERT_DECODE_ERROR);
     }
 
-    ticketNonce = (uint8_t *)BSL_SAL_Dump(&buf[bufOffset], ticketNonceSize);
-    if (ticketNonce == NULL) {
-        BSL_ERR_PUSH_ERROR(HITLS_MEMALLOC_FAIL);
-        ctx->method.sendAlert(ctx, ALERT_LEVEL_FATAL, ALERT_INTERNAL_ERROR);
-        return HITLS_MEMALLOC_FAIL;
+    msg->ticketNonceSize = (uint32_t)ticketNonceSize;
+    return HITLS_SUCCESS;
+}
+#endif /* HITLS_TLS_PROTO_TLS13 */
+static int32_t ParseTicket(ParsePacket *pkt, NewSessionTicketMsg *msg)
+{
+    bool isTls13 = (pkt->ctx->negotiatedInfo.version == HITLS_VERSION_TLS13);
+    uint16_t ticketSize = 0;
+    /* rfc5077 3.3
+       If the server does not include a ticket after including the SessionTicket extension in the ServerHello,
+       it sends a zero-length ticket in the NewSessionTicket handshake message */
+    int32_t ret = ParseTwoByteLengthField(pkt, &ticketSize, &msg->ticket);
+    if (ret == HITLS_PARSE_INVALID_MSG_LEN) {
+        return ParseErrorProcess(pkt->ctx, HITLS_PARSE_INVALID_MSG_LEN, BINLOG_ID16012,
+            BINGLOG_STR("parse ticketSize failed."), ALERT_DECODE_ERROR);
+    } else if (ret == HITLS_MEMALLOC_FAIL) {
+        return ParseErrorProcess(pkt->ctx, HITLS_MEMALLOC_FAIL, BINLOG_ID15968,
+            BINGLOG_STR("malloc ticket failed."), ALERT_UNKNOWN);
     }
 
-    msg->ticketNonceSize = ticketNonceSize;
-    msg->ticketNonce = ticketNonce;
+    /* TLS1.3 does not allow the ticket length to be 0 */
+    if ((isTls13 && (ticketSize == 0)) ||
+        (!isTls13 && (pkt->bufLen != *pkt->bufOffset))) {
+        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15967, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+            "parse sesionticket message failed, bufLen %u, ticket size %u.", pkt->bufLen, ticketSize, 0, 0);
+        return ParseErrorProcess(pkt->ctx, HITLS_PARSE_INVALID_MSG_LEN, 0, NULL, ALERT_DECODE_ERROR);
+    }
+
+    msg->ticketSize = (uint32_t)ticketSize;
     return HITLS_SUCCESS;
 }
 
-static int32_t ParseTicket(TLS_Ctx *ctx, const uint8_t *buf, uint32_t bufLen, NewSessionTicketMsg *msg)
+int32_t ParseNewSessionTicketExtension(TLS_Ctx *ctx, const uint8_t *buf, uint32_t bufLen, NewSessionTicketMsg *msg)
 {
-    uint32_t ticketSize;                    /* length of ticket */
-    uint8_t *ticket = NULL;                 /* ticket */
     uint32_t bufOffset = 0u;
-    bool isTls13 = (ctx->negotiatedInfo.version == HITLS_VERSION_TLS13);
+    int32_t ret = HITLS_SUCCESS;
 
-    if (bufLen < sizeof(uint16_t)) {
-        BSL_ERR_PUSH_ERROR(HITLS_PARSE_INVALID_MSG_LEN);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID16012, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "parse sesionticket message failed, bufLen %u.", bufLen, 0, 0, 0);
-        ctx->method.sendAlert(ctx, ALERT_LEVEL_FATAL, ALERT_DECODE_ERROR);
-        return HITLS_PARSE_INVALID_MSG_LEN;
-    }
+    while (bufOffset < bufLen) {
+        uint32_t extMsgLen = 0u;
+        uint16_t extMsgType = HS_EX_TYPE_END;
+        ret = ParseExHeader(ctx, &buf[bufOffset], bufLen - bufOffset, &extMsgType, &extMsgLen);
+        if (ret != HITLS_SUCCESS) {
+            return ret;
+        }
+        bufOffset += HS_EX_HEADER_LEN;
 
-    ticketSize = (uint32_t)BSL_ByteToUint16(&buf[bufOffset]);
-    bufOffset += sizeof(uint16_t);
+        if (bufLen - bufOffset >= extMsgLen) {
+            uint32_t hsExTypeId = HS_GetExtensionTypeId(extMsgType);
+            if (hsExTypeId != HS_EX_TYPE_ID_UNRECOGNIZED ||
+                !IsParseNeedCustomExtensions(CUSTOM_EXT_FROM_CTX(ctx), extMsgType, HITLS_EX_TYPE_TLS1_3_NEW_SESSION_TICKET)) {
+                msg->extensionTypeMask |= 1ULL << hsExTypeId;
+            }
 
-    /* TLS1.3 does not allow the ticket length to be 0 */
-    if ((isTls13 && (ticketSize == 0 || bufLen < (ticketSize + bufOffset))) ||
-        (!isTls13 && (bufLen != (ticketSize + bufOffset)))) {
-        BSL_ERR_PUSH_ERROR(HITLS_PARSE_INVALID_MSG_LEN);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15967, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "parse sesionticket message failed, bufLen %u, ticket size %u.", bufLen, ticketSize, 0, 0);
-        ctx->method.sendAlert(ctx, ALERT_LEVEL_FATAL, ALERT_DECODE_ERROR);
-        return HITLS_PARSE_INVALID_MSG_LEN;
-    }
-
-    /* rfc5077 3.3
-       If the server determines that it does not want to include a ticket after including the SessionTicket extension
-       in the ServerHello, it sends a zero-length ticket in the NewSessionTicket handshake message */
-    if (ticketSize != 0) {
-        ticket = (uint8_t *)BSL_SAL_Dump(&buf[bufOffset], ticketSize);
-        if (ticket == NULL) {
-            BSL_ERR_PUSH_ERROR(HITLS_MEMALLOC_FAIL);
-            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15968, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-                "parse sesionticket message failed: malloc ticket failed.", 0, 0, 0, 0);
-            ctx->method.sendAlert(ctx, ALERT_LEVEL_FATAL, ALERT_INTERNAL_ERROR);
-            return HITLS_MEMALLOC_FAIL;
+            if (IsParseNeedCustomExtensions(CUSTOM_EXT_FROM_CTX(ctx), extMsgType, HITLS_EX_TYPE_TLS1_3_NEW_SESSION_TICKET)) {
+                ret = ParseCustomExtensions(ctx, buf + bufOffset, extMsgType, extMsgLen,
+                    HITLS_EX_TYPE_TLS1_3_NEW_SESSION_TICKET, NULL, 0);
+                if (ret != HITLS_SUCCESS) {
+                    return ret;
+                }
+            }
+            bufOffset += extMsgLen;
+        } else {
+            return HITLS_PARSE_INVALID_MSG_LEN;
         }
     }
 
-    msg->ticketSize = ticketSize;
-    msg->ticket = ticket;
+    if (bufOffset != bufLen) {
+        return ParseErrorProcess(ctx, HITLS_PARSE_INVALID_MSG_LEN, BINLOG_ID15206,
+            BINGLOG_STR("parse extension failed."), ALERT_DECODE_ERROR);
+    }
+
     return HITLS_SUCCESS;
+}
+
+static int32_t ParseNewSessionTicketExtensions(ParsePacket *pkt, NewSessionTicketMsg *msg)
+{
+    uint16_t exMsgLen = 0;
+    const char *logStr = BINGLOG_STR("parse extension length failed.");
+    int32_t ret = ParseBytesToUint16(pkt, &exMsgLen);
+    if (ret != HITLS_SUCCESS) {
+        return ParseErrorProcess(pkt->ctx, HITLS_PARSE_INVALID_MSG_LEN, BINLOG_ID15788,
+            logStr, ALERT_DECODE_ERROR);
+    }
+
+    if (exMsgLen != (pkt->bufLen - *pkt->bufOffset)) {
+        return ParseErrorProcess(pkt->ctx, HITLS_PARSE_INVALID_MSG_LEN, BINLOG_ID15789,
+            logStr, ALERT_DECODE_ERROR);
+    }
+
+    if (exMsgLen == 0u) {
+        return HITLS_SUCCESS;
+    }
+    return ParseNewSessionTicketExtension(pkt->ctx, &pkt->buf[*pkt->bufOffset], exMsgLen, msg);
 }
 
 int32_t ParseNewSessionTicket(TLS_Ctx *ctx, const uint8_t *buf, uint32_t bufLen, HS_Msg *hsMsg)
 {
-    int32_t ret;
-    uint32_t ticketLifetimeHint;            /* unit of the ticket timeout interval is second */
-    NewSessionTicketMsg *msg = &hsMsg->body.newSessionTicket;
-
     uint32_t bufOffset = 0u;
+    NewSessionTicketMsg *msg = &hsMsg->body.newSessionTicket;
+    ParsePacket pkt = {.ctx = ctx, .buf = buf, .bufLen = bufLen, .bufOffset = &bufOffset};
 
-    if (bufLen < sizeof(uint32_t)) {
-        BSL_ERR_PUSH_ERROR(HITLS_PARSE_INVALID_MSG_LEN);
-        BSL_LOG_BINLOG_FIXLEN(BINLOG_ID15966, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-            "parse sesionticket message failed, bufLen is %u.", bufLen, 0, 0, 0);
-        ctx->method.sendAlert(ctx, ALERT_LEVEL_FATAL, ALERT_DECODE_ERROR);
-        return HITLS_PARSE_INVALID_MSG_LEN;
+    const char *logStr = BINGLOG_STR("parse sesionticket len fail.");
+    int32_t ret = ParseBytesToUint32(&pkt, &msg->ticketLifetimeHint);
+    if (ret != HITLS_SUCCESS) {
+        return ParseErrorProcess(pkt.ctx, HITLS_PARSE_INVALID_MSG_LEN, BINLOG_ID15966, logStr, ALERT_DECODE_ERROR);
     }
-
-    ticketLifetimeHint = BSL_ByteToUint32(&buf[bufOffset]);
-    bufOffset += sizeof(uint32_t);
-
+#ifdef HITLS_TLS_PROTO_TLS13
     if (ctx->negotiatedInfo.version == HITLS_VERSION_TLS13) {
-        if (bufLen < bufOffset + sizeof(uint32_t)) {
-            BSL_ERR_PUSH_ERROR(HITLS_PARSE_INVALID_MSG_LEN);
-            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID16013, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-                "parse sesionticket message failed, bufLen %u.", bufLen, 0, 0, 0);
-            ctx->method.sendAlert(ctx, ALERT_LEVEL_FATAL, ALERT_DECODE_ERROR);
-            return HITLS_PARSE_INVALID_MSG_LEN;
+        uint32_t ticketAgeAdd = 0;
+        ret = ParseBytesToUint32(&pkt, &ticketAgeAdd);
+        if (ret != HITLS_SUCCESS) {
+            return ParseErrorProcess(pkt.ctx, HITLS_PARSE_INVALID_MSG_LEN, BINLOG_ID16013, logStr, ALERT_DECODE_ERROR);
         }
+        msg->ticketAgeAdd = ticketAgeAdd;
 
-        msg->ticketAgeAdd = BSL_ByteToUint32(&buf[bufOffset]);
-        bufOffset += sizeof(uint32_t);
-
-        ret = ParseTicketNonce(ctx, &buf[bufOffset], bufLen - bufOffset, msg);
+        ret = ParseTicketNonce(&pkt, msg);
         if (ret != HITLS_SUCCESS) {
             BSL_LOG_BINLOG_FIXLEN(BINLOG_ID16014, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
-                "parse sesionticket message failed: parse ticket nonce failed.", 0, 0, 0, 0);
+                "parse ticket nonce failed.", 0, 0, 0, 0);
             return ret;
         }
-        bufOffset += sizeof(uint8_t) + msg->ticketNonceSize;
     }
-
-    ret = ParseTicket(ctx, &buf[bufOffset], bufLen - bufOffset, msg);
+#endif /* HITLS_TLS_PROTO_TLS13 */
+    ret = ParseTicket(&pkt, msg);
     if (ret != HITLS_SUCCESS) {
-        CleanNewSessionTicket(msg);
         return ret;
     }
 
-    /* TLS1.3 extension is not supported */
-    msg->ticketLifetimeHint = ticketLifetimeHint;
+#ifdef HITLS_TLS_PROTO_TLS13
+    if (ctx->negotiatedInfo.version == HITLS_VERSION_TLS13) {
+        ret = ParseNewSessionTicketExtensions(&pkt, msg);
+        if (ret != HITLS_SUCCESS) {
+            BSL_LOG_BINLOG_FIXLEN(BINLOG_ID17352, BSL_LOG_LEVEL_ERR, BSL_LOG_BINLOG_TYPE_RUN,
+                "parse ticket extensions failed.", 0, 0, 0, 0);
+            return ret;
+        }
+    }
+#endif /* HITLS_TLS_PROTO_TLS13 */
     return HITLS_SUCCESS;
 }
 
@@ -167,3 +197,4 @@ void CleanNewSessionTicket(NewSessionTicketMsg *msg)
     msg->ticketNonceSize = 0;
     return;
 }
+#endif /* HITLS_TLS_HOST_CLIENT || HITLS_TLS_PROTO_TLS13 */

@@ -23,6 +23,7 @@
 #include "crypt_algid.h"
 #include "crypt_errno.h"
 #include "crypt_eal_rand.h"
+#include "crypt_eal_init.h"
 #include "crypt_types.h"
 
 void *StdMalloc(uint32_t len) {
@@ -35,31 +36,36 @@ void PrintLastError(void) {
     printf("failed at file %s at line %d\n", file, line);
 }
 
-BSL_SAL_MemCallback cb = {StdMalloc, free};
-
 int main(void) {
     int32_t ret;
     BSL_ERR_Init();  // Initialize the error code module.
     /**
      * Before calling the algorithm APIs,
-     * call the BSL_SAL_RegMemCallback function to register the malloc and free functions.
+     * call the BSL_SAL_CallBack_Ctrl function to register the malloc and free functions.
      * Execute this step only once. If the memory allocation ability of Linux is available,
      * the two functions can be registered using Linux by default.
     */
-    BSL_SAL_RegMemCallback(&cb);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_MALLOC, StdMalloc);
+    BSL_SAL_CallBack_Ctrl(BSL_SAL_MEM_FREE, free);
+    ret = CRYPT_EAL_Init(CRYPT_EAL_INIT_CPU | CRYPT_EAL_INIT_PROVIDER);
+    if (ret != CRYPT_SUCCESS) {
+        printf("error code is %x\n", ret);
+        PrintLastError();
+        goto EXIT;
+    }
     CRYPT_EAL_PkeyCtx *pkey = NULL;
     pkey = CRYPT_EAL_PkeyNewCtx(CRYPT_PKEY_SM2);
     if (pkey == NULL) {
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Initialize the random number.
-    ret = CRYPT_EAL_RandInit(CRYPT_RAND_SHA256, NULL, NULL, NULL, 0);
+    ret = CRYPT_EAL_ProviderRandInitCtx(NULL, CRYPT_RAND_SHA256, "provider=default", NULL, 0, NULL);
     if (ret != CRYPT_SUCCESS) {
-        printf("CRYPT_EAL_RandInit: error code is %x\n", ret);
+        printf("RandInit: error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Generate a key pair.
@@ -67,7 +73,7 @@ int main(void) {
     if (ret != CRYPT_SUCCESS) {
         printf("CRYPT_EAL_PkeyGen: error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Data to be encrypted.
@@ -82,7 +88,7 @@ int main(void) {
     if (ret != CRYPT_SUCCESS) {
         printf("CRYPT_EAL_PkeyEncrypt: error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     // Decrypt data.
@@ -90,7 +96,7 @@ int main(void) {
     if (ret != CRYPT_SUCCESS) {
         printf("CRYPT_EAL_PkeyDecrypt: error code is %x\n", ret);
         PrintLastError();
-        goto exit;
+        goto EXIT;
     }
 
     if (memcmp(dcrypt, data, dataLen) == 0) {
@@ -98,7 +104,7 @@ int main(void) {
     } else {
         ret = -1;
     }
-exit:
+EXIT:
     // Release the context memory.
     CRYPT_EAL_PkeyFreeCtx(pkey);
     CRYPT_EAL_RandDeinit();

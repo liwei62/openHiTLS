@@ -36,6 +36,7 @@ typedef struct {
     uint32_t ctLen;
     uint32_t tagLen;
     int algId;
+    int isProvider;
 } ThreadParameter;
 
 void MultiThreadTest(void *arg)
@@ -46,7 +47,8 @@ void MultiThreadTest(void *arg)
     uint32_t tagLen = threadParameter->tagLen;
     uint8_t out[threadParameter->ctLen];
     uint8_t tag[threadParameter->tagLen];
-    CRYPT_EAL_CipherCtx *ctx = CRYPT_EAL_CipherNewCtx(threadParameter->algId);
+    CRYPT_EAL_CipherCtx *ctx = TestCipherNewCtx(NULL, threadParameter->algId, "provider=default",
+        threadParameter->isProvider);
     ASSERT_TRUE(ctx != NULL);
     ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, threadParameter->key, threadParameter->keyLen, threadParameter->iv,
         threadParameter->ivLen, true) == CRYPT_SUCCESS);
@@ -76,7 +78,7 @@ void MultiThreadTest(void *arg)
     ASSERT_COMPARE("Compare Pt", out, threadParameter->ptLen, threadParameter->pt, threadParameter->ptLen);
     ASSERT_COMPARE("Compare Dec Tag", tag, tagLen, threadParameter->tag, threadParameter->tagLen);
 
-exit:
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
 }
 
@@ -120,7 +122,7 @@ void SDV_CRYPTO_AES_CCM_REINIT_API_TC001(int id, int keyLen)
     ASSERT_TRUE(CRYPT_EAL_CipherReinit(ctx, (uint8_t *)iv, ivLen) == CRYPT_SUCCESS);
     ivLen = 14;
     ASSERT_TRUE(CRYPT_EAL_CipherReinit(ctx, (uint8_t *)iv, ivLen) == CRYPT_MODES_IVLEN_ERROR);
-exit:
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
 }
 /* END_CASE */
@@ -192,7 +194,7 @@ void SDV_CRYPTO_AES_CCM_CTRL_API_TC001(int id, int keyLen)
     count = (uint64_t)1 << ((15 - 12) * 8);
     ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)) ==
         CRYPT_MODES_CTRL_MSGLEN_ERROR);
-exit:
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
 }
 /* END_CASE */
@@ -245,7 +247,7 @@ void SDV_CRYPTO_AES_CCM_UPDATE_API_TC001(int id, int keyLen)
     outLen = sizeof(out);
     dataLen = 10;
     ASSERT_TRUE(CRYPT_EAL_CipherUpdate(ctx, data, dataLen, out, &outLen) == CRYPT_MODES_MSGLEN_OVERFLOW);
-exit:
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
 }
 /* END_CASE */
@@ -280,12 +282,12 @@ void SDV_CRYPTO_AES_CCM_CTRL_API_TC002(int id, int keyLen)
     uint64_t count = 0;
     CRYPT_EAL_CipherCtx *ctx = CRYPT_EAL_CipherNewCtx(id);
     ASSERT_TRUE(ctx != NULL);
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, sizeof(aad)) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)) == CRYPT_EAL_ERR_STATE);
-    ASSERT_TRUE(CRYPT_EAL_CipherReinit(ctx, iv, ivLen) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)) == CRYPT_SUCCESS);
-exit:
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, sizeof(aad)), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)), CRYPT_EAL_ERR_STATE);
+    ASSERT_EQ(CRYPT_EAL_CipherReinit(ctx, iv, ivLen), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)), CRYPT_SUCCESS);
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
 }
 /* END_CASE */
@@ -320,11 +322,11 @@ void SDV_CRYPTO_AES_CCM_CTRL_API_TC003(int id, int keyLen)
     CRYPT_EAL_CipherCtx *ctx = CRYPT_EAL_CipherNewCtx(id);
     ASSERT_TRUE(ctx != NULL);
     ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, 0) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, 0) == CRYPT_EAL_ERR_STATE);
+    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, sizeof(aad)) == CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, sizeof(aad)), CRYPT_EAL_ERR_STATE);
     ASSERT_TRUE(CRYPT_EAL_CipherReinit(ctx, iv, ivLen) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, 0) == CRYPT_SUCCESS);
-exit:
+    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, sizeof(aad)) == CRYPT_SUCCESS);
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
 }
 /* END_CASE */
@@ -404,7 +406,7 @@ void SDV_CRYPTO_AES_CCM_CTRL_API_TC004(int id, int keyLen)
     tagLen = 5;
     ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_TAGLEN, &tagLen, sizeof(tagLen)) ==
         CRYPT_MODES_CTRL_TAGLEN_ERROR);
-exit:
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
 }
 /* END_CASE */
@@ -445,6 +447,7 @@ void SDV_CRYPTO_AES_CCM_CTRL_API_TC005(int id, int keyLen)
     uint32_t ivLen = sizeof(iv);
     uint8_t aad[10] = { 0 };
     uint8_t tag[16] = { 0 };
+    uint8_t cmpTag[16] = { 0 };
     uint32_t tagLen;
     uint64_t count = 0;
     uint8_t data[20] = { 0 };
@@ -461,11 +464,11 @@ void SDV_CRYPTO_AES_CCM_CTRL_API_TC005(int id, int keyLen)
     ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, sizeof(aad)) == CRYPT_SUCCESS);
     ASSERT_TRUE(CRYPT_EAL_CipherUpdate(ctx, data, 7, out, &outLen) == CRYPT_SUCCESS);
     ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_EAL_ERR_STATE);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, cmpTag, tagLen), CRYPT_EAL_ERR_STATE);
 
     ASSERT_TRUE(CRYPT_EAL_CipherReinit(ctx, iv, ivLen) == CRYPT_SUCCESS);
     ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_SUCCESS);
-exit:
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
 }
 /* END_CASE */
@@ -524,10 +527,10 @@ void SDV_CRYPTO_AES_CCM_CTRL_API_TC006(int id, int keyLen)
     dataLen = 30;
     ASSERT_TRUE(CRYPT_EAL_CipherUpdate(ctx, data, dataLen, out, &outLen) == CRYPT_SUCCESS);
     tagLen = 10;
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_TAGLEN, &tagLen, sizeof(tagLen)) == CRYPT_EAL_ERR_STATE);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_TAGLEN, &tagLen, sizeof(tagLen)), CRYPT_EAL_ERR_STATE);
     tagLen = 16;
     ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_MODES_MSGLEN_LEFT_ERROR);
-exit:
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
 }
 /* END_CASE */
@@ -555,7 +558,8 @@ exit:
  *    4.Success. Return CRYPT_SUCCESS.
  */
 /* BEGIN_CASE */
-void SDV_CRYPTO_AES_CCM_UPDATE_FUNC_TC001(int id, Hex *key, Hex *iv, Hex *aad, Hex *plaintext, Hex *ciphertext)
+void SDV_CRYPTO_AES_CCM_UPDATE_FUNC_TC001(int isProvider, int id, Hex *key, Hex *iv, Hex *aad,
+    Hex *plaintext, Hex *ciphertext)
 {
 #ifndef HITLS_CRYPTO_CCM
     SKIP_TEST();
@@ -568,10 +572,10 @@ void SDV_CRYPTO_AES_CCM_UPDATE_FUNC_TC001(int id, Hex *key, Hex *iv, Hex *aad, H
     uint8_t out[1024] = { 0 };
     uint32_t outLen = sizeof(out);
 
-    CRYPT_EAL_CipherCtx *ctx = CRYPT_EAL_CipherNewCtx(id);
+    CRYPT_EAL_CipherCtx *ctx = TestCipherNewCtx(NULL, id, "provider=default", isProvider);
     ASSERT_TRUE(ctx != NULL);
     // encrypt
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key->x, key->len, iv0, sizeof(iv0), true) == CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key->x, key->len, iv0, sizeof(iv0), true), CRYPT_SUCCESS);
     ASSERT_TRUE(CRYPT_EAL_CipherReinit(ctx, iv->x, iv->len) == CRYPT_SUCCESS);
     count = plaintext->len;
     ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)) == CRYPT_SUCCESS);
@@ -584,7 +588,7 @@ void SDV_CRYPTO_AES_CCM_UPDATE_FUNC_TC001(int id, Hex *key, Hex *iv, Hex *aad, H
     ASSERT_TRUE(memcmp(tag, ciphertext->x + outLen, tagLen) == 0);
 
     // decrypt
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key->x, key->len, iv0, sizeof(iv0), false) == CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key->x, key->len, iv0, sizeof(iv0), false), CRYPT_SUCCESS);
     ASSERT_TRUE(CRYPT_EAL_CipherReinit(ctx, iv->x, iv->len) == CRYPT_SUCCESS);
     count = plaintext->len;
     ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)) == CRYPT_SUCCESS);
@@ -595,7 +599,7 @@ void SDV_CRYPTO_AES_CCM_UPDATE_FUNC_TC001(int id, Hex *key, Hex *iv, Hex *aad, H
     ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_SUCCESS);
     ASSERT_TRUE(memcmp(out, plaintext->x, outLen) == 0);
     ASSERT_TRUE(memcmp(tag, ciphertext->x + outLen, tagLen) == 0);
-exit:
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
 }
 /* END_CASE */
@@ -659,59 +663,61 @@ void SDV_CRYPTO_AES_CCM_CTRL_API_TC007(int id, int keyLen)
 
     CRYPT_EAL_CipherCtx *ctx = CRYPT_EAL_CipherNewCtx(id);
     ASSERT_TRUE(ctx != NULL);
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherReinit(ctx, iv, ivLen) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherReinit(ctx, iv, ivLen), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen), CRYPT_SUCCESS);
 
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherUpdate(ctx, data, 0, out, &outLen) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherUpdate(ctx, data, 0, out, &outLen), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen), CRYPT_SUCCESS);
 
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen), CRYPT_SUCCESS);
 
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true), CRYPT_SUCCESS);
     CRYPT_EAL_CipherDeinit(ctx);
-    ASSERT_TRUE(CRYPT_EAL_CipherReinit(ctx, iv, ivLen) == CRYPT_EAL_ERR_STATE);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_EAL_ERR_STATE);
+    ASSERT_EQ(CRYPT_EAL_CipherReinit(ctx, iv, ivLen), CRYPT_EAL_ERR_STATE);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen), CRYPT_EAL_ERR_STATE);
 
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true), CRYPT_SUCCESS);
     CRYPT_EAL_CipherDeinit(ctx);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_EAL_ERR_STATE);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen), CRYPT_EAL_ERR_STATE);
 
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherReinit(ctx, iv, ivLen) == CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherReinit(ctx, iv, ivLen), CRYPT_SUCCESS);
     CRYPT_EAL_CipherDeinit(ctx);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_EAL_ERR_STATE);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen), CRYPT_EAL_ERR_STATE);
 
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, sizeof(aad)) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_TAGLEN, &tagLen, sizeof(tagLen)) == CRYPT_EAL_ERR_STATE);
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, sizeof(aad)), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_TAGLEN, &tagLen, sizeof(tagLen)), CRYPT_EAL_ERR_STATE);
 
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherUpdate(ctx, data, 0, out, &outLen) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherReinit(ctx, iv, ivLen) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherUpdate(ctx, data, 0, out, &outLen), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherReinit(ctx, iv, ivLen), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen), CRYPT_SUCCESS);
 
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherUpdate(ctx, data, 0, out, &outLen) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)) == CRYPT_EAL_ERR_STATE);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherUpdate(ctx, data, 0, out, &outLen), CRYPT_SUCCESS);
 
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherUpdate(ctx, data, 0, out, &outLen) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, sizeof(aad)) == CRYPT_EAL_ERR_STATE);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)), CRYPT_EAL_ERR_STATE);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen), CRYPT_SUCCESS);
 
-    ASSERT_TRUE(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherUpdate(ctx, data, 0, out, &outLen) == CRYPT_SUCCESS);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_TAGLEN, &tagLen, sizeof(tagLen)) == CRYPT_EAL_ERR_STATE);
-    ASSERT_TRUE(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen) == CRYPT_SUCCESS);
-exit:
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherUpdate(ctx, data, 0, out, &outLen), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_AAD, aad, sizeof(aad)), CRYPT_EAL_ERR_STATE);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen), CRYPT_SUCCESS);
+
+    ASSERT_EQ(CRYPT_EAL_CipherInit(ctx, key, keyLen, iv, ivLen, true), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_MSGLEN, &count, sizeof(count)), CRYPT_SUCCESS);
+    ASSERT_EQ(CRYPT_EAL_CipherUpdate(ctx, data, 0, out, &outLen), CRYPT_SUCCESS);
+
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_SET_TAGLEN, &tagLen, sizeof(tagLen)), CRYPT_EAL_ERR_STATE);
+    ASSERT_EQ(CRYPT_EAL_CipherCtrl(ctx, CRYPT_CTRL_GET_TAG, tag, tagLen), CRYPT_SUCCESS);
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
 }
 /* END_CASE */
@@ -754,7 +760,8 @@ exit:
  *    15.Consistent with expected vector.
  */
 /* BEGIN_CASE */
-void SDV_CRYPTO_AES_CCM_UPDATE_FUNC_TC002(int algId, Hex *key, Hex *iv, Hex *aad, Hex *pt, Hex *ct, Hex *tag)
+void SDV_CRYPTO_AES_CCM_UPDATE_FUNC_TC002(int algId, Hex *key, Hex *iv, Hex *aad, Hex *pt,
+    Hex *ct, Hex *tag)
 {
 #ifndef HITLS_CRYPTO_CCM
     SKIP_TEST();
@@ -795,7 +802,7 @@ void SDV_CRYPTO_AES_CCM_UPDATE_FUNC_TC002(int algId, Hex *key, Hex *iv, Hex *aad
     ASSERT_COMPARE("Compare Pt", out, pt->len, pt->x, pt->len);
     ASSERT_COMPARE("Compare Dec Tag", outTag, tagLen, tag->x, tag->len);
 
-exit:
+EXIT:
     CRYPT_EAL_CipherFreeCtx(ctx);
     free(out);
     free(outTag);
@@ -816,7 +823,8 @@ exit:
  *    3.The decryption is successful. The plaintext and tag are consistent with the vector.
  */
 /* BEGIN_CASE */
-void SDV_CRYPTO_AES_CCM_MULTI_THREAD_FUNC_TC001(int algId, Hex *key, Hex *iv, Hex *aad, Hex *pt, Hex *ct, Hex *tag)
+void SDV_CRYPTO_AES_CCM_MULTI_THREAD_FUNC_TC001(int isProvider, int algId, Hex *key, Hex *iv, Hex *aad,
+    Hex *pt, Hex *ct, Hex *tag)
 {
     int ret;
     TestMemInit();
@@ -827,15 +835,15 @@ void SDV_CRYPTO_AES_CCM_MULTI_THREAD_FUNC_TC001(int algId, Hex *key, Hex *iv, He
         {.key = key->x, .iv = iv->x, .aad = aad->x, .pt = pt->x, .ct = ct->x, .tag = tag->x,
          .keyLen = key->len, .ivLen = iv->len, .aadLen = aad->len,
          .ptLen = pt->len, .ctLen = ct->len, .tagLen = tag->len,
-         .algId = algId},
+         .algId = algId, .isProvider = isProvider},
         {.key = key->x, .iv = iv->x, .aad = aad->x, .pt = pt->x, .ct = ct->x, .tag = tag->x,
          .keyLen = key->len, .ivLen = iv->len, .aadLen = aad->len,
          .ptLen = pt->len, .ctLen = ct->len, .tagLen = tag->len,
-         .algId = algId},
+         .algId = algId, .isProvider = isProvider},
         {.key = key->x, .iv = iv->x, .aad = aad->x, .pt = pt->x, .ct = ct->x, .tag = tag->x,
          .keyLen = key->len, .ivLen = iv->len, .aadLen = aad->len,
          .ptLen = pt->len, .ctLen = ct->len, .tagLen = tag->len,
-         .algId = algId},
+         .algId = algId, .isProvider = isProvider},
     };
     for (uint32_t i = 0; i < threadNum; i++) {
         ret = pthread_create(&thrd[i], NULL, (void *)MultiThreadTest, &arg[i]);
@@ -845,7 +853,7 @@ void SDV_CRYPTO_AES_CCM_MULTI_THREAD_FUNC_TC001(int algId, Hex *key, Hex *iv, He
         pthread_join(thrd[i], NULL);
     }
 
-exit:
+EXIT:
     return;
 }
 /* END_CASE */

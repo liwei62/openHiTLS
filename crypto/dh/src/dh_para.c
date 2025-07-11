@@ -20,6 +20,7 @@
 #include "crypt_bn.h"
 #include "crypt_errno.h"
 #include "crypt_types.h"
+#include "crypt_params_key.h"
 #include "dh_local.h"
 #include "crypt_dh.h"
 
@@ -851,15 +852,13 @@ CRYPT_DH_Para *CRYPT_DH_NewParaById(CRYPT_PKEY_ParaId id)
         BSL_ERR_PUSH_ERROR(CRYPT_ERR_ALGID);
         return NULL;
     }
-    CRYPT_DhPara para;
-    para.p = vector->p->data;
-    para.pLen = vector->p->len;
-    para.q = vector->q->data;
-    para.qLen = vector->q->len;
-    para.g = vector->g->data;
-    para.gLen = vector->g->len;
-
-    retPara = CRYPT_DH_NewPara(&para);
+    BSL_Param para[4] = {
+        {CRYPT_PARAM_DH_P, BSL_PARAM_TYPE_OCTETS, vector->p->data, vector->p->len, 0},
+        {CRYPT_PARAM_DH_Q, BSL_PARAM_TYPE_OCTETS, vector->q->data, vector->q->len, 0},
+        {CRYPT_PARAM_DH_G, BSL_PARAM_TYPE_OCTETS, vector->g->data, vector->g->len, 0},
+        BSL_PARAM_END
+    };
+    retPara = CRYPT_DH_NewPara(para);
     if (retPara == NULL) {
         goto ERR;
     }
@@ -902,7 +901,7 @@ ERR:
 CRYPT_PKEY_ParaId CRYPT_DH_GetParaId(const CRYPT_DH_Ctx *ctx)
 {
     if (ctx == NULL || ctx->para == NULL) {
-        BSL_ERR_PUSH_ERROR(CRYPT_PKEY_PARAID_MAX);
+        BSL_ERR_PUSH_ERROR(CRYPT_EAL_ERR_ALGID);
         return CRYPT_PKEY_PARAID_MAX;
     }
     return ctx->para->id;

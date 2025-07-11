@@ -20,11 +20,15 @@ usage()
     printf "%-05s %-30s\n" "* Script :"                                        "${BASH_SOURCE[0]}"
     printf "%-50s %-30s\n" "* Usage Option :"                                  ""
     printf "%-50s %-30s\n" "* --help|-h    : Help information."                ""
+    printf "%-50s %-30s\n" "* add-options  : Add options."                    "bash ${BASH_SOURCE[0]} add-options=xxx"
+    printf "%-50s %-30s\n" "* no-provider  : Disable provider."                "bash ${BASH_SOURCE[0]} no-provider"
     printf "%-50s %-30s\n" "* tls-debug    : Enable the debug mode."           "bash ${BASH_SOURCE[0]} tls-debug"
     printf "%-50s %-30s\n" "* no-crypto    : Custom crypto testcase."          "bash ${BASH_SOURCE[0]} no-crypto"
     printf "%-50s %-30s\n" "* no-bsl       : Custom bsl testcase."             "bash ${BASH_SOURCE[0]} no-bsl"
     printf "%-50s %-30s\n" "* no-tls       : Custom tls testcase."             "bash ${BASH_SOURCE[0]} no-tls"
-    printf "%-50s %-30s\n" "* no-x509      : Custom x509 testcase."            "bash ${BASH_SOURCE[0]} no-x509"
+    printf "%-50s %-30s\n" "* no-pki       : Custom pki testcase."             "bash ${BASH_SOURCE[0]} no-pki"
+    printf "%-50s %-30s\n" "* no-auth      : Custom auth testcase."            "bash ${BASH_SOURCE[0]} no-auth"
+    printf "%-50s %-30s\n" "* no-demos     : Not build demos."                 "bash ${BASH_SOURCE[0]} no-auth"
     printf "%-50s %-30s\n" "* verbose      : Show detailse."                   "bash ${BASH_SOURCE[0]} verbose"
     printf "%-50s %-30s\n" "* gcov         : Enable the coverage capability."  "bash ${BASH_SOURCE[0]} gcov"
     printf "%-50s %-30s\n" "* asan         : Enabling the ASAN capability."    "bash ${BASH_SOURCE[0]} asan"
@@ -45,13 +49,17 @@ export_env()
     BIG_ENDIAN=${BIG_ENDIAN:=OFF}
     ENABLE_CRYPTO=${ENABLE_CRYPTO:=ON}
     ENABLE_BSL=${ENABLE_BSL:=ON}
-    ENABLE_X509=${ENABLE_X509:=ON}
+    ENABLE_PKI=${ENABLE_PKI:=ON}
+    ENABLE_AUTH=${ENABLE_AUTH:=ON}
+    ENABLE_CMVP=${ENABLE_CMVP:=OFF}
+    ENABLE_DEMOS=${ENABLE_DEMOS:=ON}
     ENABLE_UIO_SCTP=${ENABLE_UIO_SCTP:=ON}
     ENABLE_VERBOSE=${ENABLE_VERBOSE:=''}
     RUN_TESTS=${RUN_TESTS:=''}
     DEBUG=${DEBUG:=ON}
     if [ -f ${HITLS_ROOT_DIR}/build/macro.txt ];then
         CUSTOM_CFLAGS=$(cat ${HITLS_ROOT_DIR}/build/macro.txt)
+        CUSTOM_CFLAGS="$CUSTOM_CFLAGS -D__FILENAME__=__FILE__"
     fi
     if [[ ! -e "${HITLS_ROOT_DIR}/testcode/output/log" ]]; then
         mkdir ${HITLS_ROOT_DIR}/testcode/output/log
@@ -70,68 +78,48 @@ find_test_suite()
 {
     if [[ ${ENABLE_CRYPTO} == "ON" ]]; then
         crypto_testsuite=$(find ${HITLS_ROOT_DIR}/testcode/sdv/testcase/crypto -name "*.data" | sed -e "s/.data//" | tr -s "\n" " ")
+        crypto_testsuite=${crypto_testsuite}$(find ${HITLS_ROOT_DIR}/testcode/sdv/testcase/codecs -name "*.data" | sed -e "s/.data//" | tr -s "\n" " ")
     fi
     if [[ ${ENABLE_BSL} == "ON" ]]; then
         bsl_testsuite=$(find ${HITLS_ROOT_DIR}/testcode/sdv/testcase/bsl -name "*.data" | sed -e "s/.data//" | tr -s "\n" " ")
     fi
-    if [[ ${ENABLE_X509} == "ON" ]]; then
-        x509_testsuite=$(find ${HITLS_ROOT_DIR}/testcode/sdv/testcase/x509 -name "*.data" | sed -e "s/.data//" | tr -s "\n" " ")
+    if [[ ${ENABLE_PKI} == "ON" ]]; then
+        pki_testsuite=$(find ${HITLS_ROOT_DIR}/testcode/sdv/testcase/pki -name "*.data" | sed -e "s/.data//" | tr -s "\n" " ")
     fi
     if [[ ${ENABLE_TLS} == "ON" ]]; then
         proto_testsuite=$(find ${HITLS_ROOT_DIR}/testcode/sdv/testcase/tls  -name "*.data" | sed -e "s/.data//" | tr -s "\n" " ")
     fi
-    RUN_TEST_SUITES="${crypto_testsuite}${bsl_testsuite}${x509_testsuite}${proto_testsuite}"
-}
-
-build_generate()
-{
-    cd ${HITLS_ROOT_DIR}/testcode && rm -rf ./build && mkdir build && cd build
-    cmake -DENABLE_GCOV=${ENABLE_GCOV} -DENABLE_ASAN=${ENABLE_ASAN} \
-          -DCUSTOM_CFLAGS="${CUSTOM_CFLAGS}" -DDEBUG=${DEBUG} -DENABLE_UIO_SCTP=${ENABLE_UIO_SCTP} \
-          -DGEN_TEST_FILES=${TEST_SUITE} -DENABLE_TLS=${ENABLE_TLS} \
-          -DENABLE_CRYPTO=${ENABLE_CRYPTO} -DENABLE_X509=${ENABLE_X509} -DTLS_DEBUG=${TLS_DEBUG} \
-          -DOS_BIG_ENDIAN=${BIG_ENDIAN} -DPRINT_TO_TERMINAL=${ENABLE_PRINT} -DENABLE_FAIL_REPEAT=${ENABLE_FAIL_REPEAT} ..
-    make GEN_TESTCASE ${ENABLE_VERBOSE} -j
+    if [[ ${ENABLE_AUTH} == "ON" ]]; then
+        auth_testsuite=$(find ${HITLS_ROOT_DIR}/testcode/sdv/testcase/auth -name "*.data" | sed -e "s/.data//" | tr -s "\n" " ")
+    fi
+    if [[ ${ENABLE_CMVP} == "ON" ]]; then
+        cmvp_testsuite=$(find ${HITLS_ROOT_DIR}/testcode/sdv/testcase/cmvp -name "*.data" | sed -e "s/.data//" | tr -s "\n" " ")
+    fi
+    RUN_TEST_SUITES="${crypto_testsuite}${bsl_testsuite}${pki_testsuite}${proto_testsuite}${auth_testsuite}${cmvp_testsuite}"
 }
 
 build_test_suite()
 {
-    procNum=$(grep -c ^processor /proc/cpuinfo)
-    echo "procNum = $procNum"
-    tmpPipe="$$.fifo"
-    mkfifo $tmpPipe
-    exec 7<>$tmpPipe
-    rm -f $tmpPipe
-    for((i=0; i<$procNum; i++)); do
-        echo
-    done >&7
-    retPipe=$tmpPipe.ret
-    mkfifo $retPipe
-    exec 8<>$retPipe
-    rm -f $retPipe
-    echo "0" >&8
+    build_provider_so
+
     [[ -n ${CASES} ]] && RUN_TEST_SUITES=${CASES}
-    cd ${HITLS_ROOT_DIR}/testcode && rm -rf build && mkdir build && cd build
-    for TEST_SUITE in ${RUN_TEST_SUITES}
-    do
-       {
-            read -u7
-            local tmp_dir=${TEST_SUITE##*/}
-            rm -rf ./${tmp_dir} && mkdir ${tmp_dir} && cd ${tmp_dir}
-            cmake -DENABLE_GCOV=${ENABLE_GCOV} -DENABLE_ASAN=${ENABLE_ASAN} \
-                -DCUSTOM_CFLAGS="${CUSTOM_CFLAGS}" -DDEBUG=${DEBUG} -DENABLE_UIO_SCTP=${ENABLE_UIO_SCTP} \
-                -DGEN_TEST_FILES=${TEST_SUITE} -DTESTFILE=${tmp_dir} \
-                -DENABLE_CRYPTO=${ENABLE_CRYPTO} -DENABLE_X509=${ENABLE_X509} -DENABLE_TLS=${ENABLE_TLS} \
-                -DTLS_DEBUG=${TLS_DEBUG} -DOS_BIG_ENDIAN=${BIG_ENDIAN} \
-                -DPRINT_TO_TERMINAL=${ENABLE_PRINT} -DENABLE_FAIL_REPEAT=${ENABLE_FAIL_REPEAT} ../..
-            make TESTCASE ${ENABLE_VERBOSE} -j || (read -u8 && echo "1" >&8)
-            echo >&7
-       } &
-    done
-    wait
-    exec 7<&-
-    read -u8 ret
-    exec 8<&-
+    cd ${HITLS_ROOT_DIR}/testcode && rm -rf ./build && mkdir build && cd build
+    cmake -DENABLE_GCOV=${ENABLE_GCOV} -DENABLE_ASAN=${ENABLE_ASAN} \
+          -DCUSTOM_CFLAGS="${CUSTOM_CFLAGS}" -DDEBUG=${DEBUG} -DENABLE_UIO_SCTP=${ENABLE_UIO_SCTP} \
+          -DGEN_TEST_FILES="${RUN_TEST_SUITES}" -DENABLE_TLS=${ENABLE_TLS} \
+          -DENABLE_CRYPTO=${ENABLE_CRYPTO} -DENABLE_PKI=${ENABLE_PKI} -DENABLE_AUTH=${ENABLE_AUTH} \
+          -DTLS_DEBUG=${TLS_DEBUG} -DOS_BIG_ENDIAN=${BIG_ENDIAN} -DPRINT_TO_TERMINAL=${ENABLE_PRINT} \
+          -DENABLE_FAIL_REPEAT=${ENABLE_FAIL_REPEAT} ..
+    make -j
+}
+
+# Function: Compile provider .so file
+build_provider_so()
+{
+    cd ${HITLS_ROOT_DIR}/testcode/testdata/provider
+    mkdir -p build && cd build
+    cmake ..
+    make -j
 }
 
 process_custom_cases()
@@ -145,6 +133,20 @@ process_custom_cases()
             [[ -n "${suite}" ]] && CASES="${suite} ${CASES}"
         done
     fi
+}
+
+build_demos()
+{
+    if [[ ${ENABLE_DEMOS} == "OFF" ]]; then
+        return
+    fi
+    pushd ${HITLS_ROOT_DIR}/testcode/demo/
+    rm -rf build && mkdir build 
+    pushd build
+    cmake -DENABLE_GCOV=${ENABLE_GCOV} -DCUSTOM_CFLAGS="${CUSTOM_CFLAGS}" -DENABLE_ASAN=${ENABLE_ASAN} ../
+    make -j
+    popd
+    popd
 }
 
 clean()
@@ -161,6 +163,9 @@ clean()
     rm -rf ${HITLS_ROOT_DIR}/testcode/sdv/build
     rm -rf ${HITLS_ROOT_DIR}/testcode/framework/process/build
     rm -rf ${HITLS_ROOT_DIR}/testcode/framework/gen_test/build
+    rm -rf ${HITLS_ROOT_DIR}/testcode/testdata/provider/build
+    rm -rf ${HITLS_ROOT_DIR}/testcode/testdata/provider/path1
+    rm -rf ${HITLS_ROOT_DIR}/testcode/testdata/provider/path2
     mkdir ${HITLS_ROOT_DIR}/testcode/output/log
 }
 
@@ -171,6 +176,12 @@ options()
         key=${1%%=*}
         value=${1#*=}
         case ${key} in
+            add-options)
+                CUSTOM_CFLAGS="${CUSTOM_CFLAGS} ${value}"
+                ;;
+            no-provider)
+                dis_options="--disable feature_provider provider codecs"
+                ;;
             tls-debug)
                 TLS_DEBUG=ON
                 ;;
@@ -186,8 +197,11 @@ options()
             no-crypto)
                 ENABLE_CRYPTO=OFF
                 ;;
-            no-x509)
-                ENABLE_X509=OFF
+            no-pki)
+                ENABLE_PKI=OFF
+                ;;
+            no-auth)
+                ENABLE_AUTH=OFF
                 ;;
             no-bsl)
                 ENABLE_BSL=OFF
@@ -195,9 +209,14 @@ options()
             no-tls)
                 ENABLE_TLS=OFF
                 ;;
+            no-demos)
+                ENABLE_DEMOS=OFF
+                ;;
             no-sctp)
                 ENABLE_UIO_SCTP=OFF
-                ENABLE_TLS=OFF
+                ;;
+            no-demos)
+                ENABLE_DEMOS=OFF
                 ;;
             verbose)
                 ENABLE_VERBOSE='VERBOSE=1'
@@ -230,5 +249,7 @@ clean
 down_depend_code
 find_test_suite
 process_custom_cases
-build_generate
 build_test_suite
+if [[ ${ENABLE_DEMOS} == "ON" ]]; then
+    build_demos
+fi

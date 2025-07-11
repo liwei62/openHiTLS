@@ -27,6 +27,7 @@
 #include "crypt_ecc.h"
 #include "ecc_local.h"
 #include "crypt_ecc_pkey.h"
+#include "crypt_params_key.h"
 
 typedef struct {
     const char *name;           /* elliptic curve NIST name */
@@ -47,7 +48,7 @@ void ECC_FreeCtx(ECC_Pkey *ctx)
     BN_Destroy(ctx->prvkey);
     ECC_FreePoint(ctx->pubkey);
     ECC_FreePara(ctx->para);
-    BSL_SAL_FREE(ctx);
+    BSL_SAL_Free(ctx);
     return;
 }
 
@@ -95,9 +96,14 @@ uint32_t ECC_PkeyGetBits(const ECC_Pkey *ctx)
     return (bytes * 2 + 1) * 8;
 }
 
-int32_t ECC_PkeySetPrvKey(ECC_Pkey *ctx, const CRYPT_EccPrv *prv)
+int32_t ECC_PkeySetPrvKey(ECC_Pkey *ctx, const BSL_Param *para)
 {
-    if ((ctx == NULL) || (ctx->para == NULL) || (prv == NULL) || (prv->data == NULL) || (prv->len == 0)) {
+    if (ctx == NULL || ctx->para == NULL || para == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
+    const BSL_Param *prv = BSL_PARAM_FindConstParam(para, CRYPT_PARAM_EC_PRVKEY);
+    if (prv == NULL || prv->value == NULL || prv->valueLen == 0) {
         BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
         return CRYPT_NULL_INPUT;
     }
@@ -113,7 +119,7 @@ int32_t ECC_PkeySetPrvKey(ECC_Pkey *ctx, const CRYPT_EccPrv *prv)
     if (ctx->para->id == CRYPT_ECC_SM2) {
         (void)BN_SubLimb(paraN, paraN, 1);
     }
-    ret = BN_Bin2Bn(newPrvKey, prv->data, prv->len);
+    ret = BN_Bin2Bn(newPrvKey, prv->value, prv->valueLen);
     if (ret != CRYPT_SUCCESS) {
         BSL_ERR_PUSH_ERROR(ret);
         goto ERR;
@@ -136,77 +142,80 @@ ERR:
     return ret;
 }
 
-int32_t ECC_PkeySetPubKey(ECC_Pkey *ctx, const CRYPT_EccPub *pub)
+/**
+ * In NIST.SP.800-56 Ar3, the FFC Full Public-Key Validation Routine needs to check nQ = Ø.
+ * For performance considerations, we perform Partial public-key Validation (Section 5.6.2.3.4) when
+ * setting the Public Key.
+*/
+int32_t ECC_PkeySetPubKey(ECC_Pkey *ctx, const BSL_Param *para)
 {
-    if ((ctx == NULL) || (ctx->para == NULL) || (pub == NULL) || (pub->data == NULL) || (pub->len == 0)) {
+    if (ctx == NULL || ctx->para == NULL || para == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
         return CRYPT_NULL_INPUT;
     }
-
-    BN_BigNum *paraN = NULL;
-    ECC_Point *pointQ = NULL;
-
+    // assume that the two scenarios will not coexist.
+    const BSL_Param *pub = BSL_PARAM_FindConstParam(para, CRYPT_PARAM_EC_PUBKEY);
+    if (pub == NULL) {
+        pub = BSL_PARAM_FindConstParam(para, CRYPT_PARAM_PKEY_ENCODE_PUBKEY);
+    }
+    if (pub == NULL || pub->value == NULL || pub->valueLen == 0) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
     ECC_Point *newPubKey = ECC_NewPoint(ctx->para);
     if (newPubKey == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
         return CRYPT_MEM_ALLOC_FAIL;
     }
 
-    int32_t ret = ECC_DecodePoint(ctx->para, newPubKey, pub->data, pub->len);
-    if (ret != CRYPT_SUCCESS) {
-        goto ERR;
+    int32_t ret = ECC_DecodePoint(ctx->para, newPubKey, pub->value, pub->valueLen);
+    if (ret == CRYPT_SUCCESS) {
+        ECC_FreePoint(ctx->pubkey);
+        ctx->pubkey = newPubKey;
+        return ret;
     }
-
-    // Check whether n * pubKey is equal to infinity.
-    paraN = ECC_GetParaN(ctx->para);
-    pointQ = ECC_NewPoint(ctx->para);
-    if ((paraN == NULL) || (pointQ == NULL)) {
-        ret = CRYPT_MEM_ALLOC_FAIL;
-        goto ERR;
-    }
-
-    ret = ECC_PointMul(ctx->para, pointQ, paraN, newPubKey);
-    if (ret != CRYPT_SUCCESS) {
-        BSL_ERR_PUSH_ERROR(ret);
-        goto ERR;
-    }
-
-    if (BN_IsZero(pointQ->z) == false) {
-        ret = CRYPT_ECC_PKEY_ERR_INVALID_PUBLIC_KEY;
-        BSL_ERR_PUSH_ERROR(ret);
-        goto ERR;
-    }
-    ret = CRYPT_SUCCESS;
-
-    ECC_FreePoint(ctx->pubkey);
-    ctx->pubkey = newPubKey;
-    newPubKey = NULL;
-
-ERR:
     ECC_FreePoint(newPubKey);
-    BN_Destroy(paraN);
-    ECC_FreePoint(pointQ);
     return ret;
 }
 
-int32_t ECC_PkeyGetPrvKey(const ECC_Pkey *ctx, CRYPT_EccPrv *prv)
+int32_t ECC_PkeyGetPrvKey(const ECC_Pkey *ctx, BSL_Param *para)
 {
-    if ((ctx == NULL) || (prv == NULL) || (prv->data == NULL) || (prv->len == 0)) {
+    if ((ctx == NULL) || (para == NULL)) {
         BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
         return CRYPT_NULL_INPUT;
     }
-
+    BSL_Param *prv = BSL_PARAM_FindParam(para, CRYPT_PARAM_EC_PRVKEY);
+    if (prv == NULL || prv->value == NULL || prv->valueLen == 0) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
     if (ctx->prvkey == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_ECC_PKEY_ERR_EMPTY_KEY);
         return CRYPT_ECC_PKEY_ERR_EMPTY_KEY;
     }
-
-    return BN_Bn2Bin(ctx->prvkey, prv->data, &prv->len);
+    uint32_t uesLen = prv->valueLen;
+    int32_t ret = BN_Bn2Bin(ctx->prvkey, prv->value, &uesLen);
+    if (ret != CRYPT_SUCCESS) {
+        BSL_ERR_PUSH_ERROR(ret);
+        return ret;
+    }
+    prv->useLen = uesLen;
+    return CRYPT_SUCCESS;
 }
 
-int32_t ECC_PkeyGetPubKey(const ECC_Pkey *ctx, CRYPT_EccPub *pub)
+int32_t ECC_PkeyGetPubKey(const ECC_Pkey *ctx, BSL_Param *para)
 {
-    if ((ctx == NULL) || (ctx->para == NULL) || (pub == NULL) || (pub->data == NULL) || (pub->len == 0)) {
+    if ((ctx == NULL) || (ctx->para == NULL) || (para == NULL)) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
+    // assume that the two scenarios will not coexist.
+    BSL_Param *pub = BSL_PARAM_FindParam(para, CRYPT_PARAM_EC_PUBKEY);
+    if (pub == NULL) {
+        pub = BSL_PARAM_FindParam(para, CRYPT_PARAM_PKEY_ENCODE_PUBKEY);
+    }
+
+    if (pub == NULL || pub->value == NULL || pub->valueLen == 0) {
         BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
         return CRYPT_NULL_INPUT;
     }
@@ -215,8 +224,14 @@ int32_t ECC_PkeyGetPubKey(const ECC_Pkey *ctx, CRYPT_EccPub *pub)
         BSL_ERR_PUSH_ERROR(CRYPT_ECC_PKEY_ERR_EMPTY_KEY);
         return CRYPT_ECC_PKEY_ERR_EMPTY_KEY;
     }
-
-    return ECC_EncodePoint(ctx->para, ctx->pubkey, pub->data, &pub->len, ctx->pointFormat);
+    uint32_t useLen = pub->valueLen;
+    int32_t ret = ECC_EncodePoint(ctx->para, ctx->pubkey, pub->value, &useLen, ctx->pointFormat);
+    if (ret != CRYPT_SUCCESS) {
+        BSL_ERR_PUSH_ERROR(ret);
+        return ret;
+    }
+    pub->useLen = useLen;
+    return CRYPT_SUCCESS;
 }
 
 static int32_t GenPrivateKey(ECC_Pkey *ctx)
@@ -240,14 +255,14 @@ static int32_t GenPrivateKey(ECC_Pkey *ctx)
         if (ctx->prvkey == NULL) {
             ret = CRYPT_MEM_ALLOC_FAIL;
             BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
-            goto ERR;
+            goto EXIT;
         }
     }
     do {
-        ret = BN_RandRange(ctx->prvkey, paraN);
+        ret = BN_RandRangeEx(ctx->libCtx, ctx->prvkey, paraN);
         if (ret != CRYPT_SUCCESS) {
             BSL_ERR_PUSH_ERROR(ret);
-            goto ERR;
+            goto EXIT;
         }
         tryCount += 1;
     } while ((BN_IsZero(ctx->prvkey) == true) && (tryCount < CRYPT_ECC_TRY_MAX_CNT));
@@ -256,7 +271,7 @@ static int32_t GenPrivateKey(ECC_Pkey *ctx)
         BSL_ERR_PUSH_ERROR(CRYPT_ECC_PKEY_ERR_TRY_CNT);
         ret = CRYPT_ECC_PKEY_ERR_TRY_CNT;
     }
-ERR:
+EXIT:
     if (paraN != ctx->para->n) {
         BN_Destroy(paraN);
     }
@@ -283,12 +298,11 @@ int32_t ECC_GenPublicKey(ECC_Pkey *ctx)
 
 static int32_t GenPublicKey(ECC_Pkey *ctx)
 {
-    if ((ctx == NULL) || (ctx->prvkey == NULL)) {
+    if (ctx->prvkey == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
         return CRYPT_NULL_INPUT;
     }
 
-    int32_t ret;
     if (ctx->pubkey == NULL) {
         ctx->pubkey = ECC_NewPoint(ctx->para);
         if (ctx->pubkey == NULL) {
@@ -297,12 +311,7 @@ static int32_t GenPublicKey(ECC_Pkey *ctx)
         }
     }
 
-    ret = ECC_PointMul(ctx->para, ctx->pubkey, ctx->prvkey, NULL);
-    if (ret != CRYPT_SUCCESS) {
-        return ret;
-    }
-
-    return CRYPT_SUCCESS;
+    return ECC_PointMul(ctx->para, ctx->pubkey, ctx->prvkey, NULL);
 }
 
 int32_t ECC_PkeyGen(ECC_Pkey *ctx)
@@ -332,42 +341,160 @@ ERR:
     return ret;
 }
 
-int32_t ECC_PkeyCtrl(ECC_Pkey *ctx, CRYPT_PkeyCtrl opt, void *val, uint32_t len)
+static const char *EcCurveId2nist(CRYPT_PKEY_ParaId id)
 {
-    if ((ctx == NULL) || (val == NULL && opt != CRYPT_CTRL_GEN_ECC_PUBLICKEY)) {
+    static EC_NAME nistCurves[] = {
+        {"P-224", CRYPT_ECC_NISTP224},
+        {"P-256", CRYPT_ECC_NISTP256},
+        {"P-384", CRYPT_ECC_NISTP384},
+        {"P-521", CRYPT_ECC_NISTP521}
+    };
+
+    for (uint32_t i = 0; i < sizeof(nistCurves) / sizeof(nistCurves[0]); i++) {
+        if (nistCurves[i].id == id) {
+            return nistCurves[i].name;
+        }
+    }
+    return NULL;
+}
+
+static int32_t ECC_GetPubXYBnBin(ECC_Pkey *ctx, int32_t opt, void *val, uint32_t len)
+{
+    if (ctx->para == NULL || len != sizeof(CRYPT_Data) || val == NULL || ((CRYPT_Data *)val)->data == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_INVALID_ARG);
+        return CRYPT_INVALID_ARG;
+    }
+
+    int32_t ret;
+    uint32_t bits = BN_Bits(ctx->para->p);
+    BN_BigNum *x = BN_Create(bits);
+    BN_BigNum *y = BN_Create(bits);
+    do {
+        if (x == NULL || y == NULL) {
+            BSL_ERR_PUSH_ERROR(CRYPT_MEM_ALLOC_FAIL);
+            ret = CRYPT_MEM_ALLOC_FAIL;
+            break;
+        }
+        ret = ECC_GetPoint2Bn(ctx->para, ctx->pubkey, x, y);
+        if (ret != CRYPT_SUCCESS) {
+            break;
+        }
+        if (opt == CRYPT_CTRL_GET_ECC_PUB_X_BIN) {
+            ret = BN_Bn2Bin(x, ((CRYPT_Data *)val)->data, &((CRYPT_Data *)val)->len);
+        } else {
+            ret = BN_Bn2Bin(y, ((CRYPT_Data *)val)->data, &((CRYPT_Data *)val)->len);
+        }
+    } while (0);
+
+    BN_Destroy(x);
+    BN_Destroy(y);
+    return ret;
+}
+
+static uint32_t GetOrderBits(const ECC_Pkey *ctx)
+{
+    if (ctx->para == NULL) {
+        BSL_ERR_PUSH_ERROR(CRYPT_ECC_ERR_PARA);
+        return 0;
+    }
+    return BN_Bits(ctx->para->n);
+}
+
+static uint32_t ECC_GetKeyLen(const ECC_Pkey *ctx)
+{
+    if ((ctx == NULL) || (ctx->para == NULL)) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return 0;
+    }
+    return BN_Bytes(ctx->para->p);
+}
+
+static uint32_t ECC_GetPubKeyLen(const ECC_Pkey *ctx)
+{
+    uint32_t keylen = ECC_GetKeyLen(ctx);
+    if (keylen == 0) {
+        BSL_ERR_PUSH_ERROR(CRYPT_INVALID_ARG);
+        return 0;
+    }
+    if (ctx->pointFormat == CRYPT_POINT_COMPRESSED) {
+        return (keylen + 1);
+    }
+    return (keylen * 2 + 1);
+}
+
+static int32_t GetEccName(ECC_Pkey *ctx, void *val, uint32_t len)
+{
+    if (ctx->para == NULL) {
         BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
         return CRYPT_NULL_INPUT;
     }
-
-    if (opt == CRYPT_CTRL_SET_ECC_POINT_FORMAT) {
-        uint32_t pointFormat = *(uint32_t *)val;
-        if (len != sizeof(uint32_t)) {
-            BSL_ERR_PUSH_ERROR(CRYPT_ECC_PKEY_ERR_CTRL_LEN);
-            return CRYPT_ECC_PKEY_ERR_CTRL_LEN;
-        }
-        if (pointFormat >= CRYPT_POINT_MAX) {
-            BSL_ERR_PUSH_ERROR(CRYPT_ECC_PKEY_ERR_INVALID_POINT_FORMAT);
-            return CRYPT_ECC_PKEY_ERR_INVALID_POINT_FORMAT;
-        }
-
-        ctx->pointFormat = pointFormat;
-        return CRYPT_SUCCESS;
-    } else if (opt == CRYPT_CTRL_SET_ECC_USE_COFACTOR_MODE) {
-        if (len != sizeof(uint32_t)) {
-            BSL_ERR_PUSH_ERROR(CRYPT_ECC_PKEY_ERR_CTRL_LEN);
-            return CRYPT_ECC_PKEY_ERR_CTRL_LEN;
-        }
-
-        ctx->useCofactorMode = *(uint32_t *)val;
-        return CRYPT_SUCCESS;
-    } else if (opt == CRYPT_CTRL_UP_REFERENCES && len == (uint32_t)sizeof(int)) {
-        return BSL_SAL_AtomicUpReferences(&(ctx->references), (int *)val);
-    } else if (opt == CRYPT_CTRL_GEN_ECC_PUBLICKEY) {
-        return GenPublicKey(ctx);
+    if (memcpy_s(val, len, EcCurveId2nist(ctx->para->id), strlen("P-521") + 1) != EOK) {
+        BSL_ERR_PUSH_ERROR(CRYPT_SECUREC_FAIL);
+        return CRYPT_SECUREC_FAIL;
     }
+    return CRYPT_SUCCESS;
+}
 
-    BSL_ERR_PUSH_ERROR(CRYPT_ECC_PKEY_ERR_UNSUPPORTED_CTRL_OPTION);
-    return CRYPT_ECC_PKEY_ERR_UNSUPPORTED_CTRL_OPTION;
+static int32_t SetEccPointFormat(ECC_Pkey *ctx, void *val, uint32_t len)
+{
+    if (len != sizeof(uint32_t)) {
+        BSL_ERR_PUSH_ERROR(CRYPT_ECC_PKEY_ERR_CTRL_LEN);
+        return CRYPT_ECC_PKEY_ERR_CTRL_LEN;
+    }
+    uint32_t pointFormat = *(uint32_t *)val;
+    if (pointFormat >= CRYPT_POINT_MAX) {
+        BSL_ERR_PUSH_ERROR(CRYPT_ECC_PKEY_ERR_INVALID_POINT_FORMAT);
+        return CRYPT_ECC_PKEY_ERR_INVALID_POINT_FORMAT;
+    }
+    ctx->pointFormat = pointFormat;
+    return CRYPT_SUCCESS;
+}
+
+static int32_t SetEccUseCofactorMode(ECC_Pkey *ctx, void *val, uint32_t len)
+{
+    if (len != sizeof(uint32_t)) {
+        BSL_ERR_PUSH_ERROR(CRYPT_ECC_PKEY_ERR_CTRL_LEN);
+        return CRYPT_ECC_PKEY_ERR_CTRL_LEN;
+    }
+    ctx->useCofactorMode = *(uint32_t *)val;
+    return CRYPT_SUCCESS;
+}
+
+int32_t ECC_PkeyCtrl(ECC_Pkey *ctx, int32_t opt, void *val, uint32_t len)
+{
+    if (ctx == NULL || (val == NULL && opt != CRYPT_CTRL_GEN_ECC_PUBLICKEY)) {
+        BSL_ERR_PUSH_ERROR(CRYPT_NULL_INPUT);
+        return CRYPT_NULL_INPUT;
+    }
+    switch (opt) {
+        case CRYPT_CTRL_GET_ECC_NAME:
+            return GetEccName(ctx, val, len);
+        case CRYPT_CTRL_GET_ECC_PUB_X_BIN:
+        case CRYPT_CTRL_GET_ECC_PUB_Y_BIN:
+            return ECC_GetPubXYBnBin(ctx, opt, val, len);
+        case CRYPT_CTRL_SET_ECC_POINT_FORMAT:
+            return SetEccPointFormat(ctx, val, len);
+        case CRYPT_CTRL_SET_ECC_USE_COFACTOR_MODE:
+            return SetEccUseCofactorMode(ctx, val, len);
+        case CRYPT_CTRL_GEN_ECC_PUBLICKEY:
+            return GenPublicKey(ctx);
+        case CRYPT_CTRL_GET_ECC_ORDER_BITS:
+            return GetUintCtrl(ctx, val, len, (GetUintCallBack)GetOrderBits);
+        case CRYPT_CTRL_GET_PUBKEY_LEN:
+            return GetUintCtrl(ctx, val, len, (GetUintCallBack)ECC_GetPubKeyLen);
+        case CRYPT_CTRL_GET_PRVKEY_LEN:
+        case CRYPT_CTRL_GET_SHARED_KEY_LEN:
+            return GetUintCtrl(ctx, val, len, (GetUintCallBack)ECC_GetKeyLen);
+        case CRYPT_CTRL_UP_REFERENCES:
+            if (len != (uint32_t)sizeof(int)) {
+                BSL_ERR_PUSH_ERROR(CRYPT_ECC_PKEY_ERR_CTRL_LEN);
+                return CRYPT_ECC_PKEY_ERR_CTRL_LEN;
+            }
+            return BSL_SAL_AtomicUpReferences(&(ctx->references), (int *)val);
+        default:
+            BSL_ERR_PUSH_ERROR(CRYPT_ECC_PKEY_ERR_UNSUPPORTED_CTRL_OPTION);
+            return CRYPT_ECC_PKEY_ERR_UNSUPPORTED_CTRL_OPTION;
+    }
 }
 
 ECC_Pkey *ECC_PkeyNewCtx(CRYPT_PKEY_ParaId id)

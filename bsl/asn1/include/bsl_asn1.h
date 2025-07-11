@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include "bsl_list.h"
+#include "bsl_uio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,6 +60,7 @@ extern "C" {
 /* Custom types, use private class to prevent conflicts */
 #define BSL_ASN1_TAG_CHOICE (BSL_ASN1_CLASS_PRIVATE | 1)
 #define BSL_ASN1_TAG_ANY (BSL_ASN1_CLASS_PRIVATE | 2)
+#define BSL_ASN1_TAG_EMPTY 0x00 /* Empty tag, used to indicate that the tag is not encoded */
 
 /* The current value is flags, is used to guide asn1 encoding or decoding */
 #define BSL_ASN1_FLAG_OPTIONAL 1
@@ -85,8 +87,8 @@ typedef struct _BSL_ASN1_TemplateItem {
     /* exptect tag */
     uint8_t tag;
     /* corresponding to the tag flag */
-    uint8_t flags:5;
-    uint8_t depth:3;
+    uint8_t flags : 5;
+    uint8_t depth : 3;
 } BSL_ASN1_TemplateItem;
 
 typedef struct _BSL_ASN1_Template {
@@ -115,7 +117,7 @@ typedef struct _BSL_ASN1_BitString {
  * @param data [IN] The data to be processed.
  * @param expVal [OUT] Output value.
  */
-typedef int32_t(*BSL_ASN1_DecTemplCallBack) (int32_t type, int32_t idx, void *data, void *expVal);
+typedef int32_t(*BSL_ASN1_DecTemplCallBack)(int32_t type, uint32_t idx, void *data, void *expVal);
 
 /**
  * @ingroup bsl_asn1
@@ -148,14 +150,17 @@ int32_t BSL_ASN1_DecodeLen(uint8_t **encode, uint32_t *encLen, bool completeLen,
 
 /**
  * @ingroup bsl_asn1
- * @brief Obtain the length of V in an ASN1 TLV structure based on the tag.
+ * @brief Decode the tag and length fields of an ASN.1 TLV structure and validate against expected tag.
  *
- * @param tag [IN] ASN1 tag.
- * @param encode [IN/OUT] Data to be decoded. Update the offset after decoding.
- * @param encLen [IN/OUT] The length of the data to be decoded.
- * @param valLen [OUT] The length of V.
- * @retval  BSL_SUCCESS, success.
- *          Other error codes see the bsl_errno.h.
+ * @param tag [IN] Expected ASN.1 tag value to validate against.
+ * @param encode [IN/OUT] Pointer to buffer containing encoded data. Updated to point after tag and length fields.
+ * @param encLen [IN/OUT] Length of remaining encoded data. Updated to reflect bytes consumed.
+ * @param valLen [OUT] Length of the value field in bytes.
+ * @retval BSL_SUCCESS Successfully decoded tag and length fields.
+ *         BSL_NULL_INPUT Invalid NULL parameters.
+ *         BSL_INVALID_ARG Buffer too small.
+ *         BSL_ASN1_ERR_MISMATCH_TAG Tag does not match expected value.
+ *         Other error codes see bsl_errno.h.
  */
 int32_t BSL_ASN1_DecodeTagLen(uint8_t tag, uint8_t **encode, uint32_t *encLen, uint32_t *valLen);
 
@@ -278,6 +283,42 @@ int32_t BSL_ASN1_EncodeListItem(uint8_t tag, uint32_t listSize, BSL_ASN1_Templat
  *          Other error codes see the bsl_errno.h.
  */
 int32_t BSL_ASN1_EncodeLimb(uint8_t tag, uint64_t limb, BSL_ASN1_Buffer *asn);
+
+/**
+ * @ingroup bsl_asn1
+ * @brief Calculate the total encoding length for a ASN.1 type through the content length.
+ *
+ * @param contentLen [IN] The length of the content to be encoded.
+ * @param encodeLen [OUT] The total number of bytes needed for DER encoding.
+ * @retval  BSL_SUCCESS, success.
+ *          Other error codes see the bsl_errno.h.
+ */
+int32_t BSL_ASN1_GetEncodeLen(uint32_t contentLen, uint32_t *encodeLen);
+
+/**
+ * @ingroup bsl_asn1
+ * @brief Print asn1 data according to the format.
+ *
+ * @param layer [IN] Print layer.
+ * @param uio [IN/OUT] Print uio context.
+ * @param fmt [IN] Print format.
+ * @retval  BSL_SUCCESS, success.
+ *          Other error codes see the bsl_errno.h.
+ */
+int32_t BSL_ASN1_Printf(uint32_t layer, BSL_UIO *uio, const char *fmt, ...);
+
+/**
+ * @ingroup bsl_asn1
+ * @brief Print asn1 data.
+ *
+ * @param layer [IN] Print layer.
+ * @param uio [IN/OUT] Print uio context.
+ * @param buff [IN] Print buffer.
+ * @param buffLen [IN] Print buffer length.
+ * @retval  BSL_SUCCESS, success.
+ *          Other error codes see the bsl_errno.h.
+ */
+int32_t BSL_ASN1_PrintfBuff(uint32_t layer, BSL_UIO *uio, const void *buff, uint32_t buffLen);
 
 #ifdef __cplusplus
 }

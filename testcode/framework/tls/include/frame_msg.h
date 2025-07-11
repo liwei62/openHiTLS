@@ -134,6 +134,14 @@ typedef struct {
 } FRAME_HsExtOfferedPsks;
 
 typedef struct {
+    FieldState exState;   /* extension Field state */
+    FRAME_Integer exType; /* extension type */
+    FRAME_Integer exLen;  /* Full length of extension */
+    FRAME_Array8 list;  /* CA list */
+    FRAME_Integer listSize; /* CA list length */
+} FRAME_HsExtCaList;
+
+typedef struct {
     FRAME_Integer version;               /* Version number */
     FRAME_Array8 randomValue;            /* Random number */
     FRAME_Integer sessionIdSize;         /* session ID length */
@@ -150,6 +158,7 @@ typedef struct {
     FRAME_HsExtArray8 pointFormats;
     FRAME_HsExtArray16 supportedGroups;
     FRAME_HsExtArray16 signatureAlgorithms;
+    FRAME_HsExtArray8 encryptThenMac;
     FRAME_HsExtArray8 extendedMasterSecret;
     FRAME_HsExtArray8 secRenego;            /* security renegotiation */
     FRAME_HsExtArray8 sessionTicket;
@@ -160,6 +169,7 @@ typedef struct {
     FRAME_HsExtArray8 pskModes;             /* tls1.3 psk exchange mode */
     FRAME_HsExtArray16 supportedVersion;     /* tls1.3 support version */
     FRAME_HsExtOfferedPsks psks;            /* tls1.3 psk */
+    FRAME_HsExtCaList caList;
 } FRAME_ClientHelloMsg;
 
 typedef struct {
@@ -194,6 +204,7 @@ typedef struct {
     FRAME_HsExtServerKeyShare keyShare;     /* tls1.3 key share */
     FRAME_HsExtUint16 pskSelectedIdentity;  /* tls1.3 psk extension */
     FRAME_HsExtArray8 tls13Cookie;          /* tls1.3 cookie */
+    FRAME_HsExtArray8 encryptThenMac;
 } FRAME_ServerHelloMsg;
 
 typedef struct {
@@ -204,6 +215,8 @@ typedef struct FrameCertItem_ {
     FieldState state;        /* Certificate Field state */
     FRAME_Integer certLen;   /* Certificate length */
     FRAME_Array8 cert;       /* Certificate Content */
+    FRAME_Integer extensionLen;   /* Certificate extension length. only for tls1.3 */
+    FRAME_Array8 extension;       /* Certificate extension Content. only for tls1.3 */
     struct FrameCertItem_ *next;
 } FrameCertItem;
 
@@ -331,6 +344,7 @@ typedef struct {
     uint8_t reverse;    /* To be deleted. The member is not processed because some code uses it */
     uint16_t version;   /* To be deleted. The member is not processed because some code uses it */
     uint16_t bodyLen;   /* To be deleted. The member is not processed because some code uses it */
+    BSL_UIO_TransportType transportType;
     uint64_t epochSeq;  /* To be deleted. The member is not processed because some code uses it */
 
     FRAME_Integer recType;        /* record the message type */
@@ -360,6 +374,7 @@ typedef struct {
     /* To ensure that the memory can be released normally, a value is assigned to the member during parsing */
     HS_MsgType handshakeType;
     HITLS_KeyExchAlgo keyExType;
+    BSL_UIO_TransportType transportType;
 } FRAME_Type;
 
 /**
@@ -376,6 +391,19 @@ typedef struct {
  * @retval  For other error codes, see hitls_error.h
  */
 int32_t FRAME_PackMsg(FRAME_Type *frameType, const FRAME_Msg *msg, uint8_t *buffer, uint32_t bufLen, uint32_t *usedLen);
+
+/**
+ * @brief    Generate tls13 handshake message according to type
+
+ * @param   type [IN] Specified packing parameters
+ * @param   buf [OUT] Returned handshake message
+ * @param   bufLen [IN] Input buffer size
+ * @param   usedLen [OUT] Returned message length
+ *
+ * @retval  HITLS_SUCCESS
+ * @retval  For other error codes, see hitls_error.h
+ */
+int32_t FRAME_GetTls13DisorderHsMsg(HS_MsgType type, uint8_t *buffer, uint32_t bufLen, uint32_t *usedLen);
 
 /**
  * @brief   Generate a TLS record body byte stream based on the specified parameter of frameType
